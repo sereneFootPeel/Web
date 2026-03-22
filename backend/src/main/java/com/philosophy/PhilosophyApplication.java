@@ -4,11 +4,12 @@ package com.philosophy;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.actuate.autoconfigure.metrics.SystemMetricsAutoConfiguration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 
-@SpringBootApplication
+@SpringBootApplication(exclude = SystemMetricsAutoConfiguration.class)
 @EntityScan("com.philosophy.model")
 @EnableJpaRepositories("com.philosophy.repository")
 @EnableScheduling
