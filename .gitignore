@@ -38,6 +38,7 @@ pnpm-debug.log*
 # Sensitive config (use env vars in production)
 **/application-local.yml
 **/application-local.properties
+**/application.properties
 
 # Uploads
 uploads/
