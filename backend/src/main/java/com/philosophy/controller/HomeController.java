@@ -34,11 +34,15 @@ import com.philosophy.util.LanguageUtil;
 import com.philosophy.util.DateUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 
 @Controller
 public class HomeController {
 
     private static final Logger logger = LoggerFactory.getLogger(HomeController.class);
+
+    @Value("${app.frontend.url:}")
+    private String frontendUrl;
 
     private final PhilosopherService philosopherService;
     private final SchoolService schoolService;
@@ -87,44 +91,12 @@ public class HomeController {
         philosophers.sort(Comparator.comparing(this::philosopherSortKey));
     }
     
-    @GetMapping("/")
-    public String home(HttpServletRequest request, Model model, Authentication authentication) {
-        // 获取当前语言设置（根据IP自动判断默认语言）
-        String language = languageUtil.getLanguage(request);
-        
-        // 添加身份验证相关变量
-        boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);
-        boolean isAdmin = isAuthenticated && authentication.getAuthorities() != null && 
-                         authentication.getAuthorities().stream()
-                         .anyMatch(auth -> auth.getAuthority().equals("ROLE_ADMIN"));
-        
-        // 如果用户已登录，获取用户点赞过的内容
-        if (isAuthenticated) {
-            com.philosophy.model.User user = (com.philosophy.model.User) authentication.getPrincipal();
-            List<Content> likedContents = likeService.getUserLikedContents(user.getId());
-            List<Philosopher> likedPhilosophers = likeService.getUserLikedPhilosophers(user.getId());
-            List<School> likedSchools = likeService.getUserLikedSchools(user.getId());
-            
-            model.addAttribute("likedContents", likedContents);
-            model.addAttribute("likedPhilosophers", likedPhilosophers);
-            model.addAttribute("likedSchools", likedSchools);
-        }
-        
-        // 获取最受欢迎的内容
-        List<Content> popularContents = likeService.getMostLikedContents(5);
-        List<Philosopher> popularPhilosophers = likeService.getMostLikedPhilosophers(5);
-        List<School> popularSchools = likeService.getMostLikedSchools(5);
-        
-        model.addAttribute("popularContents", popularContents);
-        model.addAttribute("popularPhilosophers", popularPhilosophers);
-        model.addAttribute("popularSchools", popularSchools);
-        model.addAttribute("language", language);
-        model.addAttribute("translationService", translationService);
-        model.addAttribute("isAuthenticated", isAuthenticated);
-        model.addAttribute("isAdmin", isAdmin);
-        
-        // 返回home页面作为首页
-        return "home";
+    /**
+     * 前后端分离：根路径重定向到前端首页，避免不存在的 home 模板报错。
+     */
+    @GetMapping({"/", "/home"})
+    public String home() {
+        return "redirect:" + (frontendUrl != null && !frontendUrl.isBlank() ? frontendUrl.trim() : "http://localhost:5173");
     }
     
     
