@@ -1,0 +1,147 @@
+/* Philosophy Website Theme - 与 Philosophy Website 保持一致 */
+
+:root {
+  /* Primary & Accent Colors */
+  --color-primary: #F8FAFC;
+  --color-primary-dark: #EEF2F7;
+  --color-primary-light: #FFFFFF;
+  --color-secondary: #F1F5F9;
+  --color-accent: #FFFFFF;
+
+  /* Background Colors */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F9FAFB;
+  --bg-quaternary: #F3F4F6;
+
+  /* Text Colors */
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-tertiary: #6B7280;
+  --text-on-primary: #111827;
+
+  /* Border Colors */
+  --border-primary: #E5E7EB;
+  --border-secondary: #D1D5DB;
+
+  /* Shadows & Transitions */
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+}
+
+body {
+  margin: 0;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* 导航链接 */
+.nav-link {
+  color: var(--text-secondary);
+  transition: color var(--transition-fast);
+}
+
+.nav-link:hover,
+.nav-link.active {
+  color: var(--color-primary);
+}
+
+/* Footer 组件 */
+.footer-component {
+  background-color: var(--color-primary);
+  color: var(--text-primary);
+}
+
+.footer-subtitle {
+  color: var(--text-primary);
+  opacity: 0.9;
+}
+
+/* 卡片、按钮等通用样式 */
+.card {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-normal), transform var(--transition-normal);
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+.btn-primary {
+  background-color: var(--color-primary);
+  color: var(--text-on-primary);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.btn-primary:hover {
+  background-color: var(--color-primary-dark);
+}
+
+/* 表单输入 */
+input, textarea, select {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: #111827;
+  box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.3);
+}
+
+/* 标题 */
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+}
+
+a {
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+a:hover {
+  color: var(--text-secondary);
+}
+
+/* 搜索模态框：自下往上弹出动画 */
+@keyframes search-slide-up {
+  from {
+    transform: translate(-50%, 100%);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+.search-modal-panel {
+  animation: search-slide-up 0.35s cubic-bezier(0.32, 0.72, 0, 1) forwards;
+}
+
+/* Header/Footer 在浅色主题下确保文字可见 */
+#navbar,
+#navbar a,
+#navbar span,
+#navbar i,
+#menu-toggle,
+.footer-component,
+.footer-subtitle {
+  color: var(--text-primary);
+}

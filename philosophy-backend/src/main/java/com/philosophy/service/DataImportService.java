@@ -1,0 +1,4001 @@
+package com.philosophy.service;
+
+import com.philosophy.model.*;
+import com.philosophy.repository.*;
+import com.philosophy.util.DateUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.multipart.MultipartFile;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+@Service
+public class DataImportService {
+
+    private static final Logger logger = LoggerFactory.getLogger(DataImportService.class);
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PhilosopherRepository philosopherRepository;
+
+    @Autowired
+    private SchoolRepository schoolRepository;
+
+    @Autowired
+    private ContentRepository contentRepository;
+
+
+    @Autowired
+    private CommentRepository commentRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private LikeRepository likeRepository;
+
+    @Autowired
+    private UserContentEditRepository userContentEditRepository;
+
+    @Autowired
+    private UserBlockRepository userBlockRepository;
+
+    @Autowired
+    private SchoolTranslationRepository schoolTranslationRepository;
+
+    @Autowired
+    private ContentTranslationRepository contentTranslationRepository;
+
+    @Autowired
+    private PhilosopherTranslationRepository philosopherTranslationRepository;
+
+    @Autowired
+    private UserFollowRepository userFollowRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    private final ConcurrentMap<String, Boolean> columnExistenceCache = new ConcurrentHashMap<>();
+    private final Set<String> missingColumnWarnings = ConcurrentHashMap.newKeySet();
+    private final ConcurrentMap<Long, Long> pendingUserSchoolAssignments = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Long> symbolicContentIdCache = new ConcurrentHashMap<>();
+    private static final Pattern ID_IN_OBJECT_PATTERN = Pattern.compile("\\b(?:id|ID)=(\\d+)");
+    private static final Pattern PURE_NUMBER_PATTERN = Pattern.compile("^-?\\d+$");
+    private static final List<DateTimeFormatter> SUPPORTED_COMMENT_DATE_FORMATS = List.of(
+            DateTimeFormatter.ISO_LOCAL_DATE_TIME,
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+    );
+    private static final Pattern ANY_NUMBER_PATTERN = Pattern.compile("(\\d+)");
+    private static final int USER_SECTION_MIN_COLUMNS = 26;
+    private static final int SCHOOL_SECTION_MIN_COLUMNS = 10;
+    private static final int PHILOSOPHER_SECTION_MIN_COLUMNS = 14;
+    private static final Set<String> TRUE_STRING_VALUES = Set.of("1", "true", "yes", "y", "t", "on", "是", "私密", "屏蔽");
+    private static final Set<String> FALSE_STRING_VALUES = Set.of("0", "false", "no", "n", "f", "off", "否", "公开");
+
+    public ImportResult importCsvData(MultipartFile file) {
+        return importCsvData(file, false);
+    }
+
+    public ImportResult importCsvData(MultipartFile file, boolean clearExistingData) {
+        ImportResult result = new ImportResult();
+        pendingUserSchoolAssignments.clear();
+        
+        try {
+            // 如果需要清空现有数据
+            if (clearExistingData) {
+                logger.info("开始清空现有数据...");
+                try {
+                    clearAllDataSafely();
+                    logger.info("现有数据清空完成");
+                } catch (Exception e) {
+                    logger.error("清空现有数据失败", e);
+                    result.setSuccess(false);
+                    result.setMessage("清空现有数据失败: " + e.getMessage());
+                    return result;
+                }
+            }
+            
+            Map<String, List<String[]>> dataSections = parseCsvFile(file);
+            
+            // 检查是否解析到任何数据段
+            if (dataSections.isEmpty()) {
+                result.setSuccess(false);
+                result.setMessage("导入失败: CSV文件中没有找到任何数据段。请确保文件格式正确，包含以'数据'结尾的段标题（如'用户数据'、'学派数据'等）");
+                logger.warn("CSV文件解析结果为空，可能的原因：1. 文件格式不正确 2. 缺少数据段标题 3. 文件编码问题");
+                return result;
+            }
+            
+            logger.info("成功解析到 {} 个数据段: {}", dataSections.size(), dataSections.keySet());
+            
+            // 检查是否有任何数据段包含实际数据
+            boolean hasData = false;
+            for (Map.Entry<String, List<String[]>> entry : dataSections.entrySet()) {
+                if (entry.getValue() != null && !entry.getValue().isEmpty()) {
+                    hasData = true;
+                    logger.info("数据段 '{}' 包含 {} 行数据", entry.getKey(), entry.getValue().size());
+                    break;
+                }
+            }
+            
+            if (!hasData) {
+                result.setSuccess(false);
+                StringBuilder emptySections = new StringBuilder();
+                for (String section : dataSections.keySet()) {
+                    if (emptySections.length() > 0) emptySections.append(", ");
+                    emptySections.append(section);
+                }
+                result.setMessage("导入失败: 虽然找到了 " + dataSections.size() + " 个数据段（" + emptySections + "），但所有数据段都是空的。请检查CSV文件是否包含实际数据行。");
+                logger.warn("所有数据段都是空的。找到的数据段: {}", dataSections.keySet());
+                return result;
+            }
+
+            // 按依赖顺序导入数据，将基础数据和关联更新放在同一个事务中
+            importUsersInTransaction(result, dataSections.get("用户数据"));
+
+            // 学派数据段：兼容“流派数据”等变体
+            List<String[]> schoolData = dataSections.get("学派数据");
+            if (schoolData == null) {
+                schoolData = findSectionByKeywords(dataSections, "学派", "数据");
+            }
+            if (schoolData == null) {
+                schoolData = dataSections.get("流派数据");
+            }
+            if (schoolData == null) {
+                schoolData = findSectionByKeywords(dataSections, "流派", "数据");
+            }
+            importSchoolsInTransaction(result, schoolData);
+            applyPendingUserSchoolAssignments();
+            importPhilosophersInTransaction(result, dataSections.get("哲学家数据"));
+            
+            // 导入哲学家-学派关联（在哲学家和学派导入后）——兼容多种标题/同义词
+            List<String[]> assocData = dataSections.get("哲学家学派关联数据");
+            if (assocData == null) {
+                assocData = dataSections.get("哲学家-学派关联数据");
+            }
+            if (assocData == null) {
+                assocData = findSectionByKeywords(dataSections, "哲学家", "学派", "关联");
+            }
+            if (assocData == null) {
+                assocData = dataSections.get("哲学家流派关联数据");
+            }
+            if (assocData == null) {
+                assocData = findSectionByKeywords(dataSections, "哲学家", "流派", "关联");
+            }
+            importPhilosopherSchoolAssociationsInTransaction(result, assocData);
+            
+            // 尝试查找内容数据段，支持可能的变体
+            List<String[]> contentData = dataSections.get("内容数据");
+            if (contentData == null) {
+                // 尝试查找可能的变体
+                contentData = dataSections.get("内容数据？");
+                if (contentData == null) {
+                    // 查找所有包含"内容"的段标题
+                    for (String key : dataSections.keySet()) {
+                        if (key.contains("内容") && key.contains("数据")) {
+                            logger.warn("找到可能的 content 数据段变体: {}", key);
+                            contentData = dataSections.get(key);
+                            break;
+                        }
+                    }
+                }
+            }
+            if (contentData == null) {
+                logger.warn("未找到'内容数据'段，跳过了内容导入。可用的数据段: {}", dataSections.keySet());
+                result.addResult("内容", 0, 0);
+            } else {
+                importContentsInTransaction(result, contentData);
+                
+                // 在内容导入完成后，单独处理内容关联
+                updateContentAssociationsInTransaction(result, contentData);
+            }
+            
+            // 导入其他数据
+            importCommentsInTransaction(result, dataSections.get("评论数据"));
+            importLikesInTransaction(result, dataSections.get("点赞数据"));
+            importUserContentEditsInTransaction(result, dataSections.get("用户内容编辑数据"));
+            importUserBlocksInTransaction(result, dataSections.get("用户屏蔽数据"));
+            result.addResult("用户登录信息", 0, 0);
+            importUserFollowsInTransaction(result, dataSections.get("用户关注数据"));
+            
+            // 导入翻译数据 - 支持多种段标题格式（含“流派”同义词）
+            List<String[]> schoolTranslationData = findSectionByKeywords(dataSections, "学派", "翻译");
+            if (schoolTranslationData == null) {
+                schoolTranslationData = dataSections.get("学派翻译数据");
+            }
+            if (schoolTranslationData == null) {
+                schoolTranslationData = findSectionByKeywords(dataSections, "流派", "翻译");
+            }
+            if (schoolTranslationData == null) {
+                schoolTranslationData = dataSections.get("流派翻译数据");
+            }
+            importSchoolTranslationsInTransaction(result, schoolTranslationData);
+            
+            List<String[]> contentTranslationData = findSectionByKeywords(dataSections, "内容", "翻译");
+            if (contentTranslationData == null) {
+                contentTranslationData = dataSections.get("内容翻译数据");
+            }
+            importContentTranslationsInTransaction(result, contentTranslationData);
+            
+            List<String[]> philosopherTranslationData = findSectionByKeywords(dataSections, "哲学家", "翻译");
+            if (philosopherTranslationData == null) {
+                philosopherTranslationData = dataSections.get("哲学家翻译数据");
+            }
+            importPhilosopherTranslationsInTransaction(result, philosopherTranslationData);
+
+            // 即使有部分失败，只要不是全部失败，就认为导入成功
+            if (result.getTotalImported() > 0) {
+                result.setSuccess(true);
+                result.setMessage("数据导入完成！总共导入: " +
+                    result.getTotalImported() + " 条记录，失败: " + result.getTotalFailed() + " 条");
+            } else {
+                result.setSuccess(false);
+                // 构建详细的诊断信息
+                StringBuilder diagnosticMsg = new StringBuilder("导入失败: 没有成功导入任何数据。\n\n");
+                diagnosticMsg.append("诊断信息:\n");
+                diagnosticMsg.append("- 解析到的数据段: ").append(dataSections.size()).append(" 个\n");
+                
+                for (Map.Entry<String, List<String[]>> entry : dataSections.entrySet()) {
+                    String sectionName = entry.getKey();
+                    List<String[]> sectionData = entry.getValue();
+                    int dataCount = (sectionData != null) ? sectionData.size() : 0;
+                    diagnosticMsg.append("- ").append(sectionName).append(": ").append(dataCount).append(" 行数据\n");
+                    
+                    // 显示前几行数据示例（用于调试）
+                    if (dataCount > 0 && dataCount <= 3 && sectionData != null) {
+                        for (int i = 0; i < dataCount; i++) {
+                            String[] row = sectionData.get(i);
+                            if (row != null) {
+                                diagnosticMsg.append("  示例行 ").append(i + 1).append(": ").append(row.length).append(" 个字段\n");
+                            }
+                        }
+                    }
+                }
+                
+                diagnosticMsg.append("\n可能的原因:\n");
+                diagnosticMsg.append("1. 数据格式不正确（字段数量不足或格式错误）\n");
+                diagnosticMsg.append("2. 数据验证失败（如必需字段为空、ID格式错误等）\n");
+                diagnosticMsg.append("3. 数据库约束冲突（如唯一性约束、外键约束等）\n");
+                diagnosticMsg.append("4. 请检查服务器日志获取更详细的错误信息");
+                
+                result.setMessage(diagnosticMsg.toString());
+                logger.warn("导入失败详情: {}", diagnosticMsg.toString());
+            }
+
+        } catch (Exception e) {
+            logger.error("CSV导入过程中发生异常", e);
+            result.setSuccess(false);
+            result.setMessage("导入失败: " + e.getMessage());
+            // 记录详细的错误信息
+            logger.error("导入失败详情 - 已导入: {}, 失败: {}, 错误类型: {}", 
+                        result.getTotalImported(), result.getTotalFailed(), e.getClass().getSimpleName());
+            // 不重新抛出异常，让事务正常提交
+        }
+
+        return result;
+    }
+
+    /**
+     * 安全清空所有数据表，使用TransactionTemplate确保事务正确执行
+     */
+    public void clearAllDataSafely() {
+        logger.info("开始安全清空所有数据表...");
+        
+        transactionTemplate.execute(status -> {
+            try {
+                // 禁用外键检查以避免约束问题
+                entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
+                logger.info("已禁用外键检查");
+                
+                // 使用原生SQL按正确顺序删除，避免外键约束问题
+                clearTablesInOrder();
+                
+                // 重新启用外键检查
+                entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
+                logger.info("已重新启用外键检查");
+                
+                logger.info("所有数据表清空完成");
+                return null;
+                
+            } catch (Exception e) {
+                logger.error("清空数据时发生错误", e);
+                try {
+                    entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
+                    logger.info("已重新启用外键检查");
+                } catch (Exception ex) {
+                    logger.error("重新启用外键检查失败", ex);
+                }
+                throw new RuntimeException("清空数据失败: " + e.getMessage(), e);
+            }
+        });
+    }
+
+    /**
+     * 按顺序清空所有表
+     */
+    private void clearTablesInOrder() {
+        // 1. 删除所有依赖表（没有外键约束的表）
+        safeDeleteTable("user_login_info", "用户登录信息表");
+        safeDeleteTable("user_blocks", "用户屏蔽表");
+        safeDeleteTable("user_content_edits", "用户内容编辑表");
+        safeDeleteTable("likes", "点赞表");
+        
+        // 2. 删除用户关注表（依赖用户表）
+        safeDeleteTable("user_follows", "用户关注表");
+        
+        // 3. 删除评论表（依赖用户和内容表）
+        safeDeleteTable("comments", "评论表");
+        
+        // 4. 删除翻译表
+        safeDeleteTable("contents_translation", "内容翻译表");
+        safeDeleteTable("philosophers_translation", "哲学家翻译表");
+        safeDeleteTable("schools_translation", "学派翻译表");
+        
+            // 5. 删除哲学家-学派关联表
+            safeDeleteTable("philosopher_school", "哲学家-学派关联表");
+            
+            // 6. 删除内容表（有外键约束）
+            safeDeleteTable("contents", "内容表");
+        
+        // 8. 删除哲学家表
+        safeDeleteTable("philosophers", "哲学家表");
+        
+        // 9. 删除学派表
+        safeDeleteTable("schools", "学派表");
+        
+        // 10. 删除非管理员用户（保留 ADMIN 角色账户）
+        safeDeleteNonAdminUsers();
+    }
+
+    /**
+     * 删除非管理员用户，保留 ADMIN 角色账户以便后续登录
+     */
+    private void safeDeleteNonAdminUsers() {
+        try {
+            int deleted = entityManager.createNativeQuery("DELETE FROM users WHERE role != 'ADMIN'").executeUpdate();
+            logger.info("清空用户表（保留管理员账户），已删除 {} 个非管理员用户", deleted);
+        } catch (Exception e) {
+            logger.warn("清空用户表失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 安全删除表，如果表不存在也不会报错
+     */
+    private void safeDeleteTable(String tableName, String description) {
+        try {
+            entityManager.createNativeQuery("DELETE FROM " + tableName).executeUpdate();
+            logger.info("清空{}", description);
+        } catch (Exception e) {
+            logger.warn("清空{}失败，可能表不存在: {}", description, e.getMessage());
+        }
+    }
+
+    @Transactional
+    public void clearAllDataInTransaction() {
+        logger.info("开始清空所有数据表...");
+        
+        try {
+            // 禁用外键检查以避免约束问题
+            entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
+            logger.info("已禁用外键检查");
+            
+            // 使用原生SQL按正确顺序删除，避免外键约束问题
+            // 按照外键依赖关系的逆序删除
+            
+            // 1. 删除所有依赖表（没有外键约束的表）
+            
+            try {
+                entityManager.createNativeQuery("DELETE FROM user_login_info").executeUpdate();
+                logger.info("清空用户登录信息表");
+            } catch (Exception e) {
+                logger.warn("清空用户登录信息表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            try {
+                entityManager.createNativeQuery("DELETE FROM user_blocks").executeUpdate();
+                logger.info("清空用户屏蔽表");
+            } catch (Exception e) {
+                logger.warn("清空用户屏蔽表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            try {
+                entityManager.createNativeQuery("DELETE FROM user_content_edits").executeUpdate();
+                logger.info("清空用户内容编辑表");
+            } catch (Exception e) {
+                logger.warn("清空用户内容编辑表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            try {
+                entityManager.createNativeQuery("DELETE FROM likes").executeUpdate();
+                logger.info("清空点赞表");
+            } catch (Exception e) {
+                logger.warn("清空点赞表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 2. 删除用户关注表（依赖用户表）
+            try {
+                entityManager.createNativeQuery("DELETE FROM user_follows").executeUpdate();
+                logger.info("清空用户关注表");
+            } catch (Exception e) {
+                logger.warn("清空用户关注表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 3. 删除评论表（依赖用户和内容表）
+            try {
+                entityManager.createNativeQuery("DELETE FROM comments").executeUpdate();
+                logger.info("清空评论表");
+            } catch (Exception e) {
+                logger.warn("清空评论表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 4. 删除翻译表
+            try {
+                entityManager.createNativeQuery("DELETE FROM contents_translation").executeUpdate();
+                logger.info("清空内容翻译表");
+            } catch (Exception e) {
+                logger.warn("清空内容翻译表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            try {
+                entityManager.createNativeQuery("DELETE FROM philosophers_translation").executeUpdate();
+                logger.info("清空哲学家翻译表");
+            } catch (Exception e) {
+                logger.warn("清空哲学家翻译表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            try {
+                entityManager.createNativeQuery("DELETE FROM schools_translation").executeUpdate();
+                logger.info("清空学派翻译表");
+            } catch (Exception e) {
+                logger.warn("清空学派翻译表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 5. 删除哲学家-学派关联表
+            try {
+                entityManager.createNativeQuery("DELETE FROM philosopher_school").executeUpdate();
+                logger.info("清空哲学家-学派关联表");
+            } catch (Exception e) {
+                logger.warn("清空哲学家-学派关联表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 6. 删除内容表（有外键约束）
+            try {
+                entityManager.createNativeQuery("DELETE FROM contents").executeUpdate();
+                logger.info("清空内容表");
+            } catch (Exception e) {
+                logger.warn("清空内容表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 8. 删除哲学家表
+            try {
+                entityManager.createNativeQuery("DELETE FROM philosophers").executeUpdate();
+                logger.info("清空哲学家表");
+            } catch (Exception e) {
+                logger.warn("清空哲学家表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 9. 删除学派表
+            try {
+                entityManager.createNativeQuery("DELETE FROM schools").executeUpdate();
+                logger.info("清空学派表");
+            } catch (Exception e) {
+                logger.warn("清空学派表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 10. 删除非管理员用户（保留 ADMIN 角色账户）
+            try {
+                int deleted = entityManager.createNativeQuery("DELETE FROM users WHERE role != 'ADMIN'").executeUpdate();
+                logger.info("清空用户表（保留管理员账户），已删除 {} 个非管理员用户", deleted);
+            } catch (Exception e) {
+                logger.warn("清空用户表失败，可能表不存在: {}", e.getMessage());
+            }
+            
+            // 重新启用外键检查
+            entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
+            logger.info("已重新启用外键检查");
+            
+            logger.info("所有数据表清空完成");
+            
+        } catch (Exception e) {
+            logger.error("清空数据时发生错误", e);
+            try {
+                entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
+                logger.info("已重新启用外键检查");
+            } catch (Exception ex) {
+                logger.error("重新启用外键检查失败", ex);
+            }
+            throw new RuntimeException("清空数据失败: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 清空所有数据表
+     * 注意：此方法会删除所有数据，请谨慎使用
+     */
+    @Transactional
+    public void clearAllData() {
+        logger.info("开始清空所有数据表...");
+        
+        try {
+            // 使用原生SQL按正确顺序删除，避免外键约束问题
+            // 按照外键依赖关系的逆序删除
+            
+            // 1. 删除所有依赖表（没有外键约束的表）
+            entityManager.createNativeQuery("DELETE FROM user_blocks").executeUpdate();
+            logger.info("清空用户屏蔽表");
+            
+            entityManager.createNativeQuery("DELETE FROM user_content_edits").executeUpdate();
+            logger.info("清空用户内容编辑表");
+            
+            entityManager.createNativeQuery("DELETE FROM likes").executeUpdate();
+            logger.info("清空点赞表");
+            
+            // 2. 删除用户关注表（依赖用户表）
+            entityManager.createNativeQuery("DELETE FROM user_follows").executeUpdate();
+            logger.info("清空用户关注表");
+            
+            // 3. 删除评论表（依赖用户和内容表）
+            entityManager.createNativeQuery("DELETE FROM comments").executeUpdate();
+            logger.info("清空评论表");
+            
+            // 4. 删除翻译表
+            entityManager.createNativeQuery("DELETE FROM contents_translation").executeUpdate();
+            logger.info("清空内容翻译表");
+            
+            entityManager.createNativeQuery("DELETE FROM philosophers_translation").executeUpdate();
+            logger.info("清空哲学家翻译表");
+            
+            entityManager.createNativeQuery("DELETE FROM schools_translation").executeUpdate();
+            logger.info("清空学派翻译表");
+            
+            // 5. 删除哲学家-学派关联表
+            entityManager.createNativeQuery("DELETE FROM philosopher_school").executeUpdate();
+            logger.info("清空哲学家-学派关联表");
+            
+            // 6. 删除内容表（有外键约束）
+            entityManager.createNativeQuery("DELETE FROM contents").executeUpdate();
+            logger.info("清空内容表");
+            
+            // 8. 删除哲学家表
+            entityManager.createNativeQuery("DELETE FROM philosophers").executeUpdate();
+            logger.info("清空哲学家表");
+            
+            // 9. 删除学派表
+            entityManager.createNativeQuery("DELETE FROM schools").executeUpdate();
+            logger.info("清空学派表");
+            
+            // 10. 最后删除用户表
+            entityManager.createNativeQuery("DELETE FROM users").executeUpdate();
+            logger.info("清空用户表");
+            
+            logger.info("所有数据表清空完成");
+            
+        } catch (Exception e) {
+            logger.error("清空数据时发生错误", e);
+            throw new RuntimeException("清空数据失败: " + e.getMessage(), e);
+        }
+    }
+
+    private Map<String, List<String[]>> parseCsvFile(MultipartFile file) {
+        Map<String, List<String[]>> sections = new HashMap<>();
+
+        try {
+            // 读取文件开头以检测并跳过UTF-8 BOM
+            java.io.InputStream inputStream = file.getInputStream();
+            byte[] bom = new byte[3];
+            int bytesRead = inputStream.read(bom);
+            
+            // 检查是否是UTF-8 BOM (EF BB BF)
+            boolean hasBom = (bytesRead == 3 && bom[0] == (byte) 0xEF && bom[1] == (byte) 0xBB && bom[2] == (byte) 0xBF);
+            
+            // 如果没有BOM，需要将读取的字节放回去
+            if (!hasBom && bytesRead > 0) {
+                // 使用PushbackInputStream来放回已读取的字节
+                java.io.PushbackInputStream pushbackStream = new java.io.PushbackInputStream(inputStream, 3);
+                pushbackStream.unread(bom, 0, bytesRead);
+                inputStream = pushbackStream;
+            }
+            
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+
+                String rawLine;
+                String currentSection = null;
+                List<String[]> currentData = null;
+                int physicalLineNumber = 0;
+                int logicalLineNumber = 0;
+                StringBuilder recordBuilder = new StringBuilder();
+                boolean insideQuotes = false;
+
+                logger.info("开始解析CSV文件: {}, 大小: {} bytes, 检测到UTF-8 BOM: {}", 
+                           file.getOriginalFilename(), file.getSize(), hasBom);
+
+                while ((rawLine = reader.readLine()) != null) {
+                    physicalLineNumber++;
+                    logger.debug("读取物理第{}行: [{}]", physicalLineNumber, rawLine);
+
+                    if (recordBuilder.length() > 0) {
+                        recordBuilder.append("\n");
+                    }
+                    recordBuilder.append(rawLine);
+
+                    insideQuotes = updateQuoteState(insideQuotes, rawLine);
+                    if (insideQuotes) {
+                        logger.debug("检测到跨行字段，继续累积: 当前缓冲长度 {}", recordBuilder.length());
+                        continue;
+                    }
+
+                    String logicalLine = recordBuilder.toString();
+                    recordBuilder.setLength(0);
+                    logicalLineNumber++;
+
+                    String trimmedLine = logicalLine.trim();
+                    logger.debug("解析逻辑第{}行: [{}]", logicalLineNumber, trimmedLine);
+
+                    // 检测新的数据段 - 更宽松的匹配条件，支持问号结尾
+                    if ((trimmedLine.endsWith("数据") || trimmedLine.endsWith("数据？")) && !trimmedLine.contains(",")) {
+                        if (currentSection != null && currentData != null) {
+                            sections.put(currentSection, currentData);
+                            logger.info("完成数据段: {}, 数据行数: {}", currentSection, currentData.size());
+                        }
+                        currentSection = trimmedLine;
+                        currentData = new ArrayList<>();
+                        logger.info("开始解析数据段: [{}]", currentSection);
+                        continue;
+                    }
+
+                    // 如果还没有找到数据段，跳过所有行
+                    if (currentData == null) {
+                        if (!trimmedLine.isEmpty()) {
+                            logger.debug("跳过行（未找到数据段）: [{}]", trimmedLine);
+                        }
+                        continue;
+                    }
+
+                    // 跳过标题行 - 更精确的匹配：标题行应该以"ID,"开头
+                    if (trimmedLine.startsWith("ID,")) {
+                        logger.debug("跳过标题行: [{}]", trimmedLine);
+                        continue;
+                    }
+
+                    if (trimmedLine.isEmpty()) {
+                        logger.debug("跳过空行（逻辑行）");
+                        continue;
+                    }
+
+                    String[] fields = parseCsvLine(logicalLine);
+                    if (fields.length > 0) {
+                        if ("ID".equals(fields[0].trim())) {
+                            logger.debug("跳过标题行（第一个字段是ID）: [{}]", trimmedLine);
+                            continue;
+                        }
+                        currentData.add(fields);
+                        logger.debug("添加数据行到段{}: [{}] -> {} 个字段", currentSection, trimmedLine, fields.length);
+                    } else {
+                        logger.warn("解析数据行失败，字段为空: [{}]", trimmedLine);
+                    }
+                }
+
+                if (recordBuilder.length() > 0) {
+                    String dangling = recordBuilder.toString().trim();
+                    if (!dangling.isEmpty()) {
+                        logger.warn("检测到未闭合的CSV记录，剩余内容: [{}]", dangling);
+                    }
+                }
+
+                // 保存最后一个数据段
+                if (currentSection != null && currentData != null) {
+                    sections.put(currentSection, currentData);
+                    logger.info("完成数据段: {}, 数据行数: {}", currentSection, currentData.size());
+                }
+
+                logger.info("CSV解析完成，共解析到{}个数据段: {}", sections.size(), sections.keySet());
+                
+                // 详细记录每个数据段的内容
+                for (Map.Entry<String, List<String[]>> entry : sections.entrySet()) {
+                    logger.info("数据段 '{}' 包含 {} 行数据", entry.getKey(), entry.getValue().size());
+                    if (entry.getValue().size() > 0) {
+                        logger.debug("数据段 '{}' 第一行示例: {}", entry.getKey(), Arrays.toString(entry.getValue().get(0)));
+                    }
+                }
+            }
+
+        } catch (IOException e) {
+            logger.error("解析CSV文件失败", e);
+            throw new RuntimeException("解析CSV文件失败: " + e.getMessage());
+        }
+
+        return sections;
+    }
+
+    /**
+     * 根据关键词查找数据段（支持模糊匹配）
+     * @param dataSections 所有数据段的映射
+     * @param keywords 关键词数组
+     * @return 找到的数据段，如果未找到则返回null
+     */
+    private List<String[]> findSectionByKeywords(Map<String, List<String[]>> dataSections, String... keywords) {
+        if (dataSections == null || keywords == null || keywords.length == 0) {
+            return null;
+        }
+        
+        for (String sectionName : dataSections.keySet()) {
+            boolean allKeywordsFound = true;
+            for (String keyword : keywords) {
+                if (!sectionName.contains(keyword)) {
+                    allKeywordsFound = false;
+                    break;
+                }
+            }
+            if (allKeywordsFound) {
+                logger.info("找到匹配的数据段: {} (关键词: {})", sectionName, Arrays.toString(keywords));
+                return dataSections.get(sectionName);
+            }
+        }
+        
+        logger.debug("未找到包含关键词 {} 的数据段", Arrays.toString(keywords));
+        return null;
+    }
+
+    private boolean updateQuoteState(boolean inQuotes, String line) {
+        if (line == null || line.isEmpty()) {
+            return inQuotes;
+        }
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    i++;
+                } else {
+                    inQuotes = !inQuotes;
+                }
+            }
+        }
+        return inQuotes;
+    }
+
+    private String[] parseCsvLine(String line) {
+        if (line == null || line.trim().isEmpty()) {
+            return new String[0];
+        }
+        
+        List<String> fields = new ArrayList<>();
+        boolean inQuotes = false;
+        StringBuilder field = new StringBuilder();
+
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+
+            if (c == '"') {
+                if (inQuotes && i + 1 < line.length() && line.charAt(i + 1) == '"') {
+                    // 转义的引号
+                    field.append('"');
+                    i++; // 跳过下一个引号
+                } else {
+                    // 切换引号状态
+                    inQuotes = !inQuotes;
+                }
+            } else if (c == ',' && !inQuotes) {
+                // 字段结束
+                fields.add(field.toString().trim());
+                field.setLength(0);
+            } else {
+                field.append(c);
+            }
+        }
+
+        // 添加最后一个字段
+        fields.add(field.toString().trim());
+
+        String[] result = fields.toArray(new String[0]);
+        logger.debug("解析CSV行: [{}] -> {} 个字段: {}", line, result.length, Arrays.toString(result));
+        return result;
+    }
+
+    private void recordFailureDetail(ImportResult result, String sectionName, int rowIndex, String[] fields, String reason, Exception e) {
+        if (result == null || sectionName == null) {
+            return;
+        }
+        StringBuilder message = new StringBuilder();
+        message.append("第").append(rowIndex + 1).append("行");
+        if (fields != null && fields.length > 0) {
+            String idValue = fields[0];
+            if (idValue != null && !idValue.isBlank() && !"null".equalsIgnoreCase(idValue.trim())) {
+                message.append(" (ID=").append(idValue.trim()).append(")");
+            }
+        }
+        if (reason != null && !reason.isBlank()) {
+            message.append(": ").append(reason.trim());
+        }
+        if (e != null && e.getMessage() != null && !e.getMessage().isBlank()) {
+            message.append(" - ").append(e.getMessage().trim());
+        }
+        result.addFailureDetail(sectionName, message.toString());
+    }
+
+    public void importUsersInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importUsers(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("用户导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importUsers(ImportResult result, List<String[]> data) {
+        if (data == null || data.isEmpty()) {
+            logger.info("用户数据段为空，跳过导入");
+            result.addResult("用户", 0, 0);
+            return;
+        }
+
+        logger.info("开始导入用户数据，共 {} 条", data.size());
+        final String sectionName = "用户";
+        int success = 0, failed = 0;
+
+        final String usersTable = "users";
+        final String usersContext = "用户导入";
+        ensureColumnExists(usersTable, "id", true, usersContext);
+        ensureColumnExists(usersTable, "username", true, usersContext);
+        ensureColumnExists(usersTable, "email", true, usersContext);
+        ensureColumnExists(usersTable, "password", true, usersContext);
+        ensureColumnExists(usersTable, "role", true, usersContext);
+        ensureColumnExists(usersTable, "enabled", true, usersContext);
+
+        for (int i = 0; i < data.size(); i++) {
+            String[] fields = data.get(i);
+            try {
+                if (fields == null || fields.length == 0 || isRowEmpty(fields)) {
+                    logger.debug("跳过空行: 行号 {}", i + 1);
+                    continue;
+                }
+
+                if (isUserHeaderRow(fields)) {
+                    logger.debug("跳过用户标题行: {}", Arrays.toString(fields));
+                    continue;
+                }
+
+                fields = ensureMinimumColumns(fields, USER_SECTION_MIN_COLUMNS);
+
+                Long userId = parseIdFromValue(fields[0]);
+                if (userId == null) {
+                    if (shouldSilentlySkipNonUserRow(fields)) {
+                        logger.debug("用户数据第 {} 行看起来不是用户记录，已兼容性跳过: {}", i + 1, Arrays.toString(fields));
+                        continue;
+                    }
+                    failed++;
+                    recordFailureDetail(result, sectionName, i, fields,
+                        "无法解析用户ID: '" + fields[0] + "'",
+                        null);
+                    continue;
+                }
+                
+                // 检查现有用户，以便保留版主的流派分配（如果CSV中未提供）
+                User existingUser = userRepository.findById(userId).orElse(null);
+                Long existingAssignedSchoolId = (existingUser != null && "MODERATOR".equals(existingUser.getRole())) 
+                    ? existingUser.getAssignedSchoolId() : null;
+                
+                // 直接创建新用户，不查找现有用户
+                User user = new User();
+                user.setId(userId); // 设置CSV中的ID
+                user.setUsername(fields[1]);
+                user.setEmail(fields[2]);
+                
+                // 如果导出的CSV包含密码字段，使用原密码；否则使用默认密码
+                if (fields.length > 3 && !fields[3].isEmpty() && !fields[3].equals("null")) {
+                    // 如果从CSV导入密码，应该已经是加密的，直接使用
+                    user.setPassword(fields[3]);
+                } else {
+                    // 设置默认密码
+                    user.setPassword(passwordEncoder.encode("123456"));
+                }
+                
+                // 处理姓名字段
+                if (fields.length > 4 && !fields[4].isEmpty() && !fields[4].equals("null")) {
+                    user.setFirstName(fields[4]);
+                }
+                if (fields.length > 5 && !fields[5].isEmpty() && !fields[5].equals("null")) {
+                    user.setLastName(fields[5]);
+                }
+                if (fields.length > 6 && !fields[6].isEmpty() && !fields[6].equals("null")) {
+                    user.setRole(fields[6]);
+                } else {
+                    user.setRole("USER"); // 默认角色
+                }
+                
+                // 处理启用状态
+                if (fields.length > 7 && !fields[7].isEmpty() && !fields[7].equals("null")) {
+                    user.setEnabled("1".equals(fields[7]) || "true".equalsIgnoreCase(fields[7]));
+                } else {
+                    user.setEnabled(true);
+                }
+                
+                // 处理隐私设置 (字段12-14: 个人资料隐私,评论隐私,内容隐私)
+                if (fields.length > 12 && !fields[12].isEmpty() && !fields[12].equals("null")) {
+                    user.setProfilePrivate("1".equals(fields[12]) || "true".equalsIgnoreCase(fields[12]));
+                } else {
+                    user.setProfilePrivate(false);
+                }
+                if (fields.length > 13 && !fields[13].isEmpty() && !fields[13].equals("null")) {
+                    user.setCommentsPrivate("1".equals(fields[13]) || "true".equalsIgnoreCase(fields[13]));
+                } else {
+                    user.setCommentsPrivate(false);
+                }
+                if (fields.length > 14 && !fields[14].isEmpty() && !fields[14].equals("null")) {
+                    user.setContentsPrivate("1".equals(fields[14]) || "true".equalsIgnoreCase(fields[14]));
+                } else {
+                    user.setContentsPrivate(false);
+                }
+                
+                // 处理管理员登录尝试次数 (字段15)
+                if (fields.length > 15 && !fields[15].isEmpty() && !fields[15].equals("null")) {
+                    try {
+                        user.setAdminLoginAttempts(Integer.parseInt(fields[15]));
+                    } catch (NumberFormatException e) {
+                        user.setAdminLoginAttempts(0);
+                    }
+                } else {
+                    user.setAdminLoginAttempts(0);
+                }
+                
+                // 处理点赞数 (字段16)
+                if (fields.length > 16 && !fields[16].isEmpty() && !fields[16].equals("null")) {
+                    try {
+                        user.setLikeCount(Integer.parseInt(fields[16]));
+                    } catch (NumberFormatException e) {
+                        user.setLikeCount(0);
+                    }
+                } else {
+                    user.setLikeCount(0);
+                }
+                
+                // 处理分配学派ID (字段17)
+                if (fields.length > 17 && !fields[17].isEmpty() && !fields[17].equals("null")) {
+                    try {
+                        user.setAssignedSchoolId(Long.parseLong(fields[17]));
+                    } catch (NumberFormatException e) {
+                        logger.warn("用户ID {}: 分配学派ID格式错误: {}", userId, fields[17]);
+                        user.setAssignedSchoolId(null);
+                    }
+                } else {
+                    // 如果字段为空或不存在，对于版主用户，尝试保留现有的流派分配
+                    // 这样可以避免重新导入时丢失版主的流派分配
+                    if (existingAssignedSchoolId != null && "MODERATOR".equals(user.getRole())) {
+                        user.setAssignedSchoolId(existingAssignedSchoolId);
+                        logger.debug("用户ID {}: CSV中未提供流派分配，保留现有流派分配: {}", userId, existingAssignedSchoolId);
+                    } else {
+                        user.setAssignedSchoolId(null);
+                    }
+                }
+                deferAssignedSchoolAssignment(user, sectionName, i);
+                
+                // 处理设备信息 (字段19-20: 设备类型,用户代理)
+                if (fields.length > 19 && !fields[19].isEmpty() && !fields[19].equals("null")) {
+                    user.setDeviceType(fields[19]);
+                }
+                if (fields.length > 20 && !fields[20].isEmpty() && !fields[20].equals("null")) {
+                    user.setUserAgent(fields[20]);
+                }
+                
+                // 处理头像URL (字段21)
+                if (fields.length > 21 && !fields[21].isEmpty() && !fields[21].equals("null")) {
+                    user.setAvatarUrl(fields[21]);
+                }
+
+                // 处理语言设置 (字段22) - 限制长度为10个字符
+                if (fields.length > 22 && !fields[22].isEmpty() && !fields[22].equals("null")) {
+                    String language = fields[22];
+                    // 截断到10个字符（数据库字段限制）
+                    if (language.length() > 10) {
+                        language = language.substring(0, 10);
+                        logger.warn("用户ID {} 的language字段过长，已截断为: {}", userId, language);
+                    }
+                    user.setLanguage(language);
+                } else {
+                    user.setLanguage("zh"); // 默认值
+                }
+
+                // 处理主题设置 (字段23)
+                if (fields.length > 23 && !fields[23].isEmpty() && !fields[23].equals("null")) {
+                    user.setTheme(fields[23]);
+                } else {
+                    user.setTheme("light"); // 默认值
+                }
+
+                // 解析创建时间 (字段24)
+                if (fields.length > 24 && !fields[24].equals("未知时间") && !fields[24].isEmpty() && 
+                    !fields[24].equals("null")) {
+                    try {
+                        user.setCreatedAt(LocalDateTime.parse(fields[24], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                    } catch (Exception e) {
+                        logger.warn("用户ID {}: 创建时间格式错误: {}", userId, fields[24]);
+                    }
+                }
+                
+                // 解析更新时间 (字段25)
+                if (fields.length > 25 && !fields[25].equals("未知时间") && !fields[25].isEmpty() && 
+                    !fields[25].equals("null")) {
+                    try {
+                        user.setUpdatedAt(LocalDateTime.parse(fields[25], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                    } catch (Exception e) {
+                        logger.warn("用户ID {}: 更新时间格式错误: {}", userId, fields[25]);
+                    }
+                }
+
+                // 使用原生SQL执行清理并插入，兼容线上已有账号导致的唯一约束冲突
+                try {
+                    handleUserConflictsBeforeInsert(user);
+                    int rowsAffected = insertUserRecord(user);
+                    if (rowsAffected > 0) {
+                        success++;
+                        logger.debug("用户保存成功: ID={}, username={}", user.getId(), user.getUsername());
+                    } else {
+                        logger.warn("用户ID {} 插入失败", user.getId());
+                        failed++;
+                        recordFailureDetail(result, sectionName, i, fields, "数据库未插入任何记录", null);
+                    }
+
+                } catch (Exception saveException) {
+                    logger.error("保存用户时发生异常: ID={}, 错误: {}", user.getId(), saveException.getMessage(), saveException);
+                    throw saveException;
+                }
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入用户失败: " + Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, i, fields, "导入失败", e);
+            }
+        }
+
+        result.addResult(sectionName, success, failed);
+        logger.info("用户数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    private void deferAssignedSchoolAssignment(User user, String sectionName, int rowIndex) {
+        if (user == null || user.getId() == null) {
+            return;
+        }
+
+        Long targetSchoolId = user.getAssignedSchoolId();
+        if (targetSchoolId == null) {
+            pendingUserSchoolAssignments.remove(user.getId());
+            return;
+        }
+
+        pendingUserSchoolAssignments.put(user.getId(), targetSchoolId);
+        user.setAssignedSchoolId(null);
+        logger.debug("用户ID {}: 分配学派 {} 将在学派导入后应用 ({} 第 {} 行)", user.getId(), targetSchoolId, sectionName, rowIndex + 1);
+    }
+
+    private void applyPendingUserSchoolAssignments() {
+        if (pendingUserSchoolAssignments.isEmpty()) {
+            return;
+        }
+
+        Map<Long, Long> assignments = new LinkedHashMap<>(pendingUserSchoolAssignments);
+        pendingUserSchoolAssignments.clear();
+
+        try {
+            transactionTemplate.execute(status -> {
+                for (Map.Entry<Long, Long> entry : assignments.entrySet()) {
+                    Long userId = entry.getKey();
+                    Long schoolId = entry.getValue();
+                    if (userId == null || schoolId == null) {
+                        continue;
+                    }
+
+                    if (!schoolRepository.existsById(schoolId)) {
+                        logger.warn("用户ID {}: 目标学派 {} 在导入完成后仍不存在，保持为空", userId, schoolId);
+                        continue;
+                    }
+
+                    try {
+                        jakarta.persistence.Query update = entityManager.createNativeQuery(
+                                "UPDATE users SET assigned_school_id = ? WHERE id = ?");
+                        update.setParameter(1, schoolId);
+                        update.setParameter(2, userId);
+                        int affected = update.executeUpdate();
+                        if (affected == 0) {
+                            logger.warn("用户ID {}: 更新分配学派 {} 未影响任何行", userId, schoolId);
+                        }
+                    } catch (Exception e) {
+                        logger.error("用户ID {}: 更新分配学派 {} 失败", userId, schoolId, e);
+                    }
+                }
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("批量更新用户分配学派失败: {}", e.getMessage(), e);
+        }
+    }
+
+    private void handleUserConflictsBeforeInsert(User user) {
+        if (user == null || user.getId() == null) {
+            return;
+        }
+
+        Long userId = user.getId();
+        Set<Long> conflictUserIds = new LinkedHashSet<>();
+
+        userRepository.findByUsername(user.getUsername()).ifPresent(existing -> conflictUserIds.add(existing.getId()));
+        if (user.getEmail() != null && !user.getEmail().isEmpty()) {
+            userRepository.findByEmail(user.getEmail()).ifPresent(existing -> conflictUserIds.add(existing.getId()));
+        }
+
+        // 避免删除与当前ID相同的记录（后续会统一清理）
+        conflictUserIds.remove(userId);
+
+        for (Long conflictId : conflictUserIds) {
+            logger.warn("用户导入: CSV中用户ID {} 与现有用户ID {} 在用户名/邮箱上冲突，清理旧数据以避免唯一约束错误", userId, conflictId);
+            deleteUserCascade(conflictId);
+        }
+
+        // 清理同ID旧数据，确保插入不会违反外键约束
+        deleteUserCascade(userId);
+    }
+
+    private void deleteUserCascade(Long userId) {
+        if (userId == null) {
+            return;
+        }
+
+        logger.debug("清理用户依赖数据并删除旧记录: userId={}", userId);
+
+        try {
+            jakarta.persistence.Query deleteFollowQuery = entityManager.createNativeQuery("DELETE FROM user_follows WHERE follower_id = ? OR following_id = ?");
+            deleteFollowQuery.setParameter(1, userId);
+            deleteFollowQuery.setParameter(2, userId);
+            deleteFollowQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteBlockQuery = entityManager.createNativeQuery("DELETE FROM user_blocks WHERE blocker_id = ? OR blocked_id = ?");
+            deleteBlockQuery.setParameter(1, userId);
+            deleteBlockQuery.setParameter(2, userId);
+            deleteBlockQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteUserContentEditQuery = entityManager.createNativeQuery("DELETE FROM user_content_edits WHERE user_id = ?");
+            deleteUserContentEditQuery.setParameter(1, userId);
+            deleteUserContentEditQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteUserContentEditsByOriginalContentQuery = entityManager.createNativeQuery(
+                    "DELETE FROM user_content_edits WHERE original_content_id IN (SELECT id FROM contents WHERE user_id = ?)");
+            deleteUserContentEditsByOriginalContentQuery.setParameter(1, userId);
+            deleteUserContentEditsByOriginalContentQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteLikeQuery = entityManager.createNativeQuery("DELETE FROM likes WHERE user_id = ?");
+            deleteLikeQuery.setParameter(1, userId);
+            deleteLikeQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteCommentQuery = entityManager.createNativeQuery("DELETE FROM comments WHERE user_id = ?");
+            deleteCommentQuery.setParameter(1, userId);
+            deleteCommentQuery.executeUpdate();
+
+            jakarta.persistence.Query resetContentLockQuery = entityManager.createNativeQuery(
+                    "UPDATE contents SET locked_by_user_id = NULL WHERE locked_by_user_id = ?");
+            resetContentLockQuery.setParameter(1, userId);
+            resetContentLockQuery.executeUpdate();
+
+            jakarta.persistence.Query resetContentPrivacyQuery = entityManager.createNativeQuery(
+                    "UPDATE contents SET privacy_set_by = NULL WHERE privacy_set_by = ?");
+            resetContentPrivacyQuery.setParameter(1, userId);
+            resetContentPrivacyQuery.executeUpdate();
+
+            jakarta.persistence.Query resetContentBlockedQuery = entityManager.createNativeQuery(
+                    "UPDATE contents SET blocked_by = NULL WHERE blocked_by = ?");
+            resetContentBlockedQuery.setParameter(1, userId);
+            resetContentBlockedQuery.executeUpdate();
+
+            jakarta.persistence.Query resetCommentPrivacyQuery = entityManager.createNativeQuery(
+                    "UPDATE comments SET privacy_set_by = NULL WHERE privacy_set_by = ?");
+            resetCommentPrivacyQuery.setParameter(1, userId);
+            resetCommentPrivacyQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteContentTranslationQuery = entityManager.createNativeQuery(
+                    "DELETE FROM contents_translation WHERE content_id IN (SELECT id FROM contents WHERE user_id = ?)");
+            deleteContentTranslationQuery.setParameter(1, userId);
+            deleteContentTranslationQuery.executeUpdate();
+
+            // 在删除 contents 之前，先删除所有引用这些 contents 的 comments（通过 content_id 外键）
+            jakarta.persistence.Query deleteCommentsByContentQuery = entityManager.createNativeQuery(
+                    "DELETE FROM comments WHERE content_id IN (SELECT id FROM contents WHERE user_id = ?)");
+            deleteCommentsByContentQuery.setParameter(1, userId);
+            deleteCommentsByContentQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteContentQuery = entityManager.createNativeQuery("DELETE FROM contents WHERE user_id = ?");
+            deleteContentQuery.setParameter(1, userId);
+            deleteContentQuery.executeUpdate();
+
+            // 清理与该用户关联的哲学家数据，避免外键阻止用户删除
+            jakarta.persistence.Query deleteContentTranslationByPhilosopherQuery = entityManager.createNativeQuery(
+                    "DELETE FROM contents_translation WHERE content_id IN (SELECT id FROM contents WHERE philosopher_id IN (SELECT id FROM philosophers WHERE user_id = ?))");
+            deleteContentTranslationByPhilosopherQuery.setParameter(1, userId);
+            deleteContentTranslationByPhilosopherQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteCommentsByPhilosopherContentQuery = entityManager.createNativeQuery(
+                    "DELETE FROM comments WHERE content_id IN (SELECT id FROM contents WHERE philosopher_id IN (SELECT id FROM philosophers WHERE user_id = ?))");
+            deleteCommentsByPhilosopherContentQuery.setParameter(1, userId);
+            deleteCommentsByPhilosopherContentQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteUserContentEditsByOriginalContentPhilosopherQuery = entityManager.createNativeQuery(
+                    "DELETE FROM user_content_edits WHERE original_content_id IN (SELECT id FROM contents WHERE philosopher_id IN (SELECT id FROM philosophers WHERE user_id = ?))");
+            deleteUserContentEditsByOriginalContentPhilosopherQuery.setParameter(1, userId);
+            deleteUserContentEditsByOriginalContentPhilosopherQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteUserContentEditsByPhilosopherQuery = entityManager.createNativeQuery(
+                    "DELETE FROM user_content_edits WHERE philosopher_id IN (SELECT id FROM philosophers WHERE user_id = ?)");
+            deleteUserContentEditsByPhilosopherQuery.setParameter(1, userId);
+            deleteUserContentEditsByPhilosopherQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteContentByPhilosopherQuery = entityManager.createNativeQuery(
+                    "DELETE FROM contents WHERE philosopher_id IN (SELECT id FROM philosophers WHERE user_id = ?)");
+            deleteContentByPhilosopherQuery.setParameter(1, userId);
+            deleteContentByPhilosopherQuery.executeUpdate();
+
+            jakarta.persistence.Query deletePhilosopherTranslationsQuery = entityManager.createNativeQuery(
+                    "DELETE FROM philosophers_translation WHERE philosopher_id IN (SELECT id FROM philosophers WHERE user_id = ?)");
+            deletePhilosopherTranslationsQuery.setParameter(1, userId);
+            deletePhilosopherTranslationsQuery.executeUpdate();
+
+            jakarta.persistence.Query deletePhilosopherSchoolByPhilosopherQuery = entityManager.createNativeQuery(
+                    "DELETE FROM philosopher_school WHERE philosopher_id IN (SELECT id FROM philosophers WHERE user_id = ?)");
+            deletePhilosopherSchoolByPhilosopherQuery.setParameter(1, userId);
+            deletePhilosopherSchoolByPhilosopherQuery.executeUpdate();
+
+            jakarta.persistence.Query deletePhilosophersQuery = entityManager.createNativeQuery(
+                    "DELETE FROM philosophers WHERE user_id = ?");
+            deletePhilosophersQuery.setParameter(1, userId);
+            deletePhilosophersQuery.executeUpdate();
+
+            // 清理与该用户关联的学派数据，避免外键阻止用户删除
+            jakarta.persistence.Query deleteContentTranslationBySchoolQuery = entityManager.createNativeQuery(
+                    "DELETE FROM contents_translation WHERE content_id IN (SELECT id FROM contents WHERE school_id IN (SELECT id FROM schools WHERE user_id = ?))");
+            deleteContentTranslationBySchoolQuery.setParameter(1, userId);
+            deleteContentTranslationBySchoolQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteCommentsBySchoolContentQuery = entityManager.createNativeQuery(
+                    "DELETE FROM comments WHERE content_id IN (SELECT id FROM contents WHERE school_id IN (SELECT id FROM schools WHERE user_id = ?))");
+            deleteCommentsBySchoolContentQuery.setParameter(1, userId);
+            deleteCommentsBySchoolContentQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteUserContentEditsByOriginalContentSchoolQuery = entityManager.createNativeQuery(
+                    "DELETE FROM user_content_edits WHERE original_content_id IN (SELECT id FROM contents WHERE school_id IN (SELECT id FROM schools WHERE user_id = ?))");
+            deleteUserContentEditsByOriginalContentSchoolQuery.setParameter(1, userId);
+            deleteUserContentEditsByOriginalContentSchoolQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteUserContentEditsBySchoolQuery = entityManager.createNativeQuery(
+                    "DELETE FROM user_content_edits WHERE school_id IN (SELECT id FROM schools WHERE user_id = ?)");
+            deleteUserContentEditsBySchoolQuery.setParameter(1, userId);
+            deleteUserContentEditsBySchoolQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteContentBySchoolQuery = entityManager.createNativeQuery(
+                    "DELETE FROM contents WHERE school_id IN (SELECT id FROM schools WHERE user_id = ?)");
+            deleteContentBySchoolQuery.setParameter(1, userId);
+            deleteContentBySchoolQuery.executeUpdate();
+
+            jakarta.persistence.Query deletePhilosopherSchoolBySchoolQuery = entityManager.createNativeQuery(
+                    "DELETE FROM philosopher_school WHERE school_id IN (SELECT id FROM schools WHERE user_id = ?)");
+            deletePhilosopherSchoolBySchoolQuery.setParameter(1, userId);
+            deletePhilosopherSchoolBySchoolQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteSchoolTranslationsQuery = entityManager.createNativeQuery(
+                    "DELETE FROM schools_translation WHERE school_id IN (SELECT id FROM schools WHERE user_id = ?)");
+            deleteSchoolTranslationsQuery.setParameter(1, userId);
+            deleteSchoolTranslationsQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteSchoolsQuery = entityManager.createNativeQuery(
+                    "DELETE FROM schools WHERE user_id = ?");
+            deleteSchoolsQuery.setParameter(1, userId);
+            deleteSchoolsQuery.executeUpdate();
+
+            jakarta.persistence.Query deleteUserQuery = entityManager.createNativeQuery("DELETE FROM users WHERE id = ?");
+            deleteUserQuery.setParameter(1, userId);
+            deleteUserQuery.executeUpdate();
+        } catch (Exception cleanupException) {
+            logger.error("清理用户依赖数据时发生异常: userId={}, 错误={}", userId, cleanupException.getMessage(), cleanupException);
+            throw cleanupException;
+        }
+    }
+
+    private boolean tableColumnExists(String tableName, String columnName) {
+        String cacheKey = tableName + "." + columnName;
+        return columnExistenceCache.computeIfAbsent(cacheKey, key -> {
+            try {
+                jakarta.persistence.Query query = entityManager.createNativeQuery(
+                        "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?");
+                query.setParameter(1, tableName);
+                query.setParameter(2, columnName);
+                Number count = (Number) query.getSingleResult();
+                return count != null && count.intValue() > 0;
+            } catch (Exception e) {
+                logger.warn("检测数据表列存在性失败: {}.{}, 错误: {}", tableName, columnName, e.getMessage());
+                return false;
+            }
+        });
+    }
+
+    private boolean ensureColumnExists(String tableName, String columnName, boolean required, String context) {
+        boolean exists = tableColumnExists(tableName, columnName);
+        if (!exists) {
+            String key = tableName + "." + columnName;
+            if (missingColumnWarnings.add(key)) {
+                String message = String.format("检测到表 %s 缺少列 %s，导入上下文: %s", tableName, columnName, context);
+                if (required) {
+                    logger.error("{}。该列为必需列，相关数据将无法导入。", message);
+                } else {
+                    logger.warn("{}。该列将在导入过程中被跳过。", message);
+                }
+            }
+            if (required) {
+                throw new IllegalStateException(
+                        String.format("数据库表 %s 缺少必需列 %s（上下文: %s）", tableName, columnName, context));
+            }
+        }
+        return exists;
+    }
+
+    private boolean addUpdateColumn(List<String> assignments, List<Object> params,
+                                    String tableName, String columnName, Object value,
+                                    String context, boolean required) {
+        if (!ensureColumnExists(tableName, columnName, required, context)) {
+            return false;
+        }
+        assignments.add(columnName + " = ?");
+        params.add(value);
+        return true;
+    }
+
+    private boolean addInsertColumn(List<String> columns, List<Object> params,
+                                    String tableName, String columnName, Object value,
+                                    String context, boolean required) {
+        if (!ensureColumnExists(tableName, columnName, required, context)) {
+            return false;
+        }
+        columns.add(columnName);
+        params.add(value);
+        return true;
+    }
+
+    private String resolvePhilosopherBioColumn() {
+        // NOTE:
+        // `Philosopher.bio` 实体字段映射到数据库列 `biography`（见 Philosopher.java 的 @Column(name="biography")）。
+        // 但某些数据库历史版本可能同时存在 `bio` 与 `biography` 两列。
+        // 为保证页面/实体读取一致性，这里必须优先写入 `biography`。
+        boolean hasBiography = tableColumnExists("philosophers", "biography");
+        boolean hasBio = tableColumnExists("philosophers", "bio");
+
+        if (hasBiography) {
+            // 如果同时存在两列，提示一次即可（帮助定位“导入了但页面不显示”的问题）
+            if (hasBio) {
+                logger.warn("检测到 philosophers 表同时存在 bio 与 biography 两列；导入将优先写入 biography 以匹配实体映射。");
+            }
+            return "biography";
+        }
+        if (hasBio) {
+            return "bio";
+        }
+        return null;
+    }
+
+    private int insertUserRecord(User user) {
+        final String tableName = "users";
+        final String context = "用户导入";
+
+        List<String> columns = new ArrayList<>();
+        List<Object> params = new ArrayList<>();
+
+        addInsertColumn(columns, params, tableName, "id", user.getId(), context, true);
+        addInsertColumn(columns, params, tableName, "username", user.getUsername(), context, true);
+        addInsertColumn(columns, params, tableName, "email", user.getEmail(), context, true);
+        addInsertColumn(columns, params, tableName, "password", user.getPassword(), context, true);
+
+        addInsertColumn(columns, params, tableName, "first_name", user.getFirstName(), context, false);
+        addInsertColumn(columns, params, tableName, "last_name", user.getLastName(), context, false);
+
+        addInsertColumn(columns, params, tableName, "role", user.getRole(), context, true);
+        addInsertColumn(columns, params, tableName, "enabled", user.isEnabled(), context, true);
+
+        addInsertColumn(columns, params, tableName, "profile_private", user.isProfilePrivate(), context, false);
+        addInsertColumn(columns, params, tableName, "comments_private", user.isCommentsPrivate(), context, false);
+        addInsertColumn(columns, params, tableName, "contents_private", user.isContentsPrivate(), context, false);
+
+        addInsertColumn(columns, params, tableName, "admin_login_attempts", user.getAdminLoginAttempts(), context, false);
+        addInsertColumn(columns, params, tableName, "like_count", user.getLikeCount(), context, false);
+        addInsertColumn(columns, params, tableName, "assigned_school_id", user.getAssignedSchoolId(), context, false);
+
+        addInsertColumn(columns, params, tableName, "device_type", user.getDeviceType(), context, false);
+        addInsertColumn(columns, params, tableName, "user_agent", user.getUserAgent(), context, false);
+        addInsertColumn(columns, params, tableName, "avatar_url", user.getAvatarUrl(), context, false);
+
+        addInsertColumn(columns, params, tableName, "language", user.getLanguage(), context, false);
+        addInsertColumn(columns, params, tableName, "theme", user.getTheme(), context, false);
+        addInsertColumn(columns, params, tableName, "created_at", user.getCreatedAt(), context, false);
+        addInsertColumn(columns, params, tableName, "updated_at", user.getUpdatedAt(), context, false);
+
+        String placeholders = String.join(", ", Collections.nCopies(columns.size(), "?"));
+        String sql = "INSERT INTO " + tableName + " (" + String.join(", ", columns) + ") VALUES (" + placeholders + ")";
+
+        jakarta.persistence.Query query = entityManager.createNativeQuery(sql);
+        for (int i = 0; i < params.size(); i++) {
+            query.setParameter(i + 1, params.get(i));
+        }
+
+        return query.executeUpdate();
+    }
+
+    public void importSchoolsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importSchools(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("学派导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importSchools(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入学派数据，共 {} 条", data.size());
+        final String sectionName = "学派";
+        int success = 0, failed = 0;
+
+        // 第一阶段：存储学派ID和父学派ID的映射关系
+        Map<Long, Long> schoolParentMap = new HashMap<>();
+
+        // 第一阶段：导入所有学派，但不设置parent_id
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                if (fields == null || fields.length == 0 || isRowEmpty(fields)) {
+                    logger.debug("跳过空学派行: 行号 {}", index + 1);
+                    continue;
+                }
+
+                if (isHeaderRow(fields)) {
+                    logger.debug("跳过学派标题行: {}", Arrays.toString(fields));
+                    continue;
+                }
+
+                fields = ensureMinimumColumns(fields, SCHOOL_SECTION_MIN_COLUMNS);
+
+                Long schoolId = parseIdFromValue(fields[0]);
+                if (schoolId == null) {
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                        "无法解析学派ID: '" + fields[0] + "'",
+                        null);
+                    continue;
+                }
+                
+                // 直接创建新学派，不查找现有学派
+                School school = new School();
+                school.setId(schoolId); // 设置CSV中的ID
+                school.setName(fields[1]);
+                
+                // 处理英文名称
+                if (fields.length > 2 && !fields[2].isEmpty() && !fields[2].equals("null")) {
+                    school.setNameEn(fields[2]);
+                }
+                
+                // 处理描述
+                if (fields.length > 3 && !fields[3].isEmpty() && !fields[3].equals("null")) {
+                    school.setDescription(fields[3]);
+                }
+                
+                // 处理英文描述
+                if (fields.length > 4 && !fields[4].isEmpty() && !fields[4].equals("null")) {
+                    school.setDescriptionEn(fields[4]);
+                }
+
+                // 解析父学派ID (字段5)，但不立即设置，先保存到Map中
+                if (fields.length > 5 && !fields[5].isEmpty() && !fields[5].equals("null")) {
+                    try {
+                        Long parentId = Long.parseLong(fields[5]);
+                        // 保存到Map中，第二阶段再处理
+                        schoolParentMap.put(schoolId, parentId);
+                    } catch (NumberFormatException e) {
+                        logger.warn("父学派ID格式错误: {}", fields[5]);
+                    }
+                }
+                
+                // 注意：创建者ID (字段6) 暂时跳过处理，因为School模型中需要User关联
+
+                // 处理点赞数 (字段7)
+                if (fields.length > 7 && !fields[7].isEmpty() && !fields[7].equals("null")) {
+                    try {
+                        school.setLikeCount(Integer.parseInt(fields[7]));
+                    } catch (NumberFormatException e) {
+                        school.setLikeCount(0);
+                    }
+                } else {
+                    school.setLikeCount(0);
+                }
+
+                // 解析创建时间 (字段8)
+                if (fields.length > 8 && !fields[8].equals("未知时间") && !fields[8].isEmpty() && !fields[8].equals("null")) {
+                    try {
+                        school.setCreatedAt(LocalDateTime.parse(fields[8], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                    } catch (Exception e) {
+                        logger.warn("学派ID {}: 创建时间格式错误: {}", schoolId, fields[8]);
+                    }
+                }
+                
+                // 解析更新时间 (字段9)
+                if (fields.length > 9 && !fields[9].equals("未知时间") && !fields[9].isEmpty() && !fields[9].equals("null")) {
+                    try {
+                        school.setUpdatedAt(LocalDateTime.parse(fields[9], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                    } catch (Exception e) {
+                        logger.warn("学派ID {}: 更新时间格式错误: {}", schoolId, fields[9]);
+                    }
+                }
+
+                // 优先尝试更新现有学派，保留已有作者；若不存在则插入（插入时可带作者ID）
+                try {
+                    // 解析创建者ID（字段6），允许为空或“已注销”
+                    Long creatorUserId = null;
+                    if (fields.length > 6 && fields[6] != null) {
+                        String u = fields[6].trim();
+                        if (!u.isEmpty() && !"null".equalsIgnoreCase(u) && !"已注销".equals(u)) {
+                            try {
+                                creatorUserId = Long.parseLong(u);
+                                // 校验存在
+                                String checkUserSql = "SELECT id FROM users WHERE id = ? LIMIT 1";
+                                jakarta.persistence.Query cu = entityManager.createNativeQuery(checkUserSql);
+                                cu.setParameter(1, creatorUserId);
+                                java.util.List<?> ur = cu.getResultList();
+                                if (ur.isEmpty()) creatorUserId = null;
+                            } catch (NumberFormatException ignore) {
+                                creatorUserId = null;
+                            }
+                        }
+                    }
+
+                    final String tableName = "schools";
+                    final String context = "学派导入";
+
+                    List<String> updateAssignments = new ArrayList<>();
+                    List<Object> updateParams = new ArrayList<>();
+
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "name", school.getName(), context, true);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "name_en", school.getNameEn(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "description", school.getDescription(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "description_en", school.getDescriptionEn(), context, false);
+                    // 第一阶段不设置parent_id，第二阶段再处理
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "like_count", school.getLikeCount(), context, false);
+
+                    if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                        updateAssignments.add("updated_at = ?");
+                        updateParams.add(school.getUpdatedAt() != null ? school.getUpdatedAt() : java.time.LocalDateTime.now());
+                    }
+                    if (ensureColumnExists(tableName, "user_id", false, context)) {
+                        updateAssignments.add("user_id = COALESCE(?, user_id)");
+                        updateParams.add(creatorUserId);
+                    }
+
+                    String updateSql = "UPDATE " + tableName + " SET " + String.join(", ", updateAssignments) + " WHERE id = ?";
+                    updateParams.add(school.getId());
+
+                    jakarta.persistence.Query updateQ = entityManager.createNativeQuery(updateSql);
+                    for (int p = 0; p < updateParams.size(); p++) {
+                        updateQ.setParameter(p + 1, updateParams.get(p));
+                    }
+                    int updated = updateQ.executeUpdate();
+
+                    if (updated == 0) {
+                        List<String> insertColumns = new ArrayList<>();
+                        List<Object> insertParams = new ArrayList<>();
+
+                        addInsertColumn(insertColumns, insertParams, tableName, "id", school.getId(), context, true);
+                        addInsertColumn(insertColumns, insertParams, tableName, "name", school.getName(), context, true);
+                        addInsertColumn(insertColumns, insertParams, tableName, "name_en", school.getNameEn(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "description", school.getDescription(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "description_en", school.getDescriptionEn(), context, false);
+                        // 第一阶段不设置parent_id，第二阶段再处理
+                        addInsertColumn(insertColumns, insertParams, tableName, "like_count", school.getLikeCount(), context, false);
+
+                        if (ensureColumnExists(tableName, "user_id", false, context)) {
+                            insertColumns.add("user_id");
+                            insertParams.add(creatorUserId);
+                        }
+                        if (ensureColumnExists(tableName, "created_at", false, context)) {
+                            insertColumns.add("created_at");
+                            insertParams.add(school.getCreatedAt());
+                        }
+                        if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                            insertColumns.add("updated_at");
+                            insertParams.add(school.getUpdatedAt() != null ? school.getUpdatedAt() : java.time.LocalDateTime.now());
+                        }
+
+                        String insertSql = "INSERT INTO " + tableName + " (" + String.join(", ", insertColumns) + ") VALUES (" +
+                                String.join(", ", Collections.nCopies(insertColumns.size(), "?")) + ")";
+                        jakarta.persistence.Query insertQ = entityManager.createNativeQuery(insertSql);
+                        for (int p = 0; p < insertParams.size(); p++) {
+                            insertQ.setParameter(p + 1, insertParams.get(p));
+                        }
+                        int rows = insertQ.executeUpdate();
+                        if (rows > 0) {
+                            success++;
+                            logger.debug("学派插入成功: ID={}, name={}", school.getId(), school.getName());
+                        } else {
+                            logger.warn("学派ID {} 插入失败", school.getId());
+                            failed++;
+                            recordFailureDetail(result, sectionName, index, fields, "数据库未插入任何记录", null);
+                        }
+                    } else {
+                        success++;
+                        logger.debug("学派更新成功: ID={}, name={}", school.getId(), school.getName());
+                    }
+                } catch (Exception saveException) {
+                    logger.error("保存学派时发生异常: ID={}, 错误: {}", school.getId(), saveException.getMessage(), saveException);
+                    throw saveException;
+                }
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入学派失败: " + Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "导入失败", e);
+            }
+        }
+
+        result.addResult(sectionName, success, failed);
+        logger.info("学派数据第一阶段导入完成，成功: {}, 失败: {}", success, failed);
+
+        // 第二阶段：设置父学派关联
+        if (!schoolParentMap.isEmpty()) {
+            logger.info("开始第二阶段：设置父学派关联，共 {} 个关联", schoolParentMap.size());
+            int parentLinkSuccess = 0;
+            int parentLinkFailed = 0;
+
+            for (Map.Entry<Long, Long> entry : schoolParentMap.entrySet()) {
+                Long schoolId = entry.getKey();
+                Long parentId = entry.getValue();
+                
+                try {
+                    // 检查父学派是否存在（可能在数据库中已存在，或在本次导入中已创建）
+                    School parent = schoolRepository.findById(parentId).orElse(null);
+                    if (parent != null) {
+                        // 更新学派的parent_id
+                        String updateParentSql = "UPDATE schools SET parent_id = ? WHERE id = ?";
+                        jakarta.persistence.Query updateParentQ = entityManager.createNativeQuery(updateParentSql);
+                        updateParentQ.setParameter(1, parentId);
+                        updateParentQ.setParameter(2, schoolId);
+                        int updated = updateParentQ.executeUpdate();
+                        
+                        if (updated > 0) {
+                            parentLinkSuccess++;
+                            logger.debug("学派ID {} 的父学派关联设置成功，父学派ID: {}", schoolId, parentId);
+                        } else {
+                            parentLinkFailed++;
+                            logger.warn("学派ID {} 不存在，无法设置父学派关联", schoolId);
+                        }
+                    } else {
+                        parentLinkFailed++;
+                        logger.warn("父学派ID {} 不存在，无法为学派ID {} 设置父学派关联", parentId, schoolId);
+                    }
+                } catch (Exception e) {
+                    parentLinkFailed++;
+                    logger.error("设置学派ID {} 的父学派关联时发生异常: {}", schoolId, e.getMessage(), e);
+                }
+            }
+
+            logger.info("父学派关联设置完成，成功: {}, 失败: {}", parentLinkSuccess, parentLinkFailed);
+        }
+
+        logger.info("学派数据导入全部完成");
+    }
+
+    public void importPhilosophersInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importPhilosophers(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("哲学家导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importPhilosophers(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入哲学家数据，共 {} 条", data.size());
+        final String sectionName = "哲学家";
+        final String philosopherBioColumn = resolvePhilosopherBioColumn();
+        final boolean philosopherBioColumnExists = philosopherBioColumn != null;
+        final boolean philosopherBioEnColumnExists = tableColumnExists("philosophers", "bio_en");
+        int success = 0, failed = 0;
+
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                if (fields == null || fields.length == 0 || isRowEmpty(fields)) {
+                    logger.debug("跳过空哲学家行: 行号 {}", index + 1);
+                    continue;
+                }
+
+                if (isHeaderRow(fields)) {
+                    logger.debug("跳过哲学家标题行: {}", Arrays.toString(fields));
+                    continue;
+                }
+
+                boolean hasLegacyEraColumn = fields.length >= 14;
+                fields = ensureMinimumColumns(fields, PHILOSOPHER_SECTION_MIN_COLUMNS);
+                int nationalityIndex = hasLegacyEraColumn ? 6 : 5;
+                int bioIndex = hasLegacyEraColumn ? 7 : 6;
+                int bioEnIndex = hasLegacyEraColumn ? 8 : 7;
+                int imageUrlIndex = hasLegacyEraColumn ? 9 : 8;
+                int creatorIdIndex = hasLegacyEraColumn ? 10 : 9;
+                int likeCountIndex = hasLegacyEraColumn ? 11 : 10;
+                int createdAtIndex = hasLegacyEraColumn ? 12 : 11;
+                int updatedAtIndex = hasLegacyEraColumn ? 13 : 12;
+
+                Long philosopherId = parseIdFromValue(fields[0]);
+                if (philosopherId == null) {
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                        "无法解析哲学家ID: '" + fields[0] + "'",
+                        null);
+                    continue;
+                }
+
+                logger.debug("处理哲学家ID: {}, 字段: {}", philosopherId, Arrays.toString(fields));
+                
+                // 直接创建新哲学家，不查找现有哲学家
+                Philosopher philosopher = new Philosopher();
+                philosopher.setId(philosopherId); // 设置CSV中的ID
+                philosopher.setName(fields[1]);
+                
+                // 处理英文姓名 (第3个字段)
+                if (fields.length > 2 && !fields[2].isEmpty() && !fields[2].equals("null")) {
+                    philosopher.setNameEn(fields[2]);
+                }
+
+                // 解析出生年份 (第4个字段)
+                if (fields.length > 3 && !fields[3].isEmpty() && !fields[3].equals("null")) {
+                    try {
+                        philosopher.setBirthYear(Integer.parseInt(fields[3]));
+                    } catch (NumberFormatException e) {
+                        logger.warn("哲学家ID {}: 出生年份格式错误: {}", philosopherId, fields[3]);
+                    }
+                }
+                
+                // 解析卒年 (第5个字段)
+                if (fields.length > 4 && !fields[4].isEmpty() && !fields[4].equals("null")) {
+                    try {
+                        philosopher.setDeathYear(Integer.parseInt(fields[4]));
+                    } catch (NumberFormatException e) {
+                        logger.warn("哲学家ID {}: 卒年格式错误: {}", philosopherId, fields[4]);
+                    }
+                }
+                
+                // 兼容旧CSV中的日期范围字段(第6个字段)，仅用于回填 birth/death
+                if (hasLegacyEraColumn && fields.length > 5 && !fields[5].isEmpty() && !fields[5].equals("null")) {
+                    String legacyDateRange = fields[5].trim();
+                    if (philosopher.getBirthYear() == null) {
+                        Integer parsedBirth = DateUtils.parseBirthDateFromRange(legacyDateRange);
+                        if (parsedBirth != null) {
+                            philosopher.setBirthYear(parsedBirth);
+                        }
+                    }
+                    if (philosopher.getDeathYear() == null) {
+                        Integer parsedDeath = DateUtils.parseDeathYearFromRange(legacyDateRange);
+                        if (parsedDeath != null) {
+                            philosopher.setDeathYear(parsedDeath);
+                        }
+                    }
+                }
+                
+                // 处理国籍
+                if (fields.length > nationalityIndex && !fields[nationalityIndex].isEmpty() && !fields[nationalityIndex].equals("null")) {
+                    philosopher.setNationality(fields[nationalityIndex]);
+                }
+                
+                // 处理传记
+                if (fields.length > bioIndex && !fields[bioIndex].isEmpty() && !fields[bioIndex].equals("null")) {
+                    philosopher.setBio(fields[bioIndex]);
+                }
+                
+                // 处理英文传记
+                if (fields.length > bioEnIndex && !fields[bioEnIndex].isEmpty() && !fields[bioEnIndex].equals("null")) {
+                    philosopher.setBioEn(fields[bioEnIndex]);
+                }
+                
+                // 处理图片URL
+                if (fields.length > imageUrlIndex && !fields[imageUrlIndex].isEmpty() && !fields[imageUrlIndex].equals("null")) {
+                    philosopher.setImageUrl(fields[imageUrlIndex]);
+                }
+                
+                // 处理点赞数
+                if (fields.length > likeCountIndex && !fields[likeCountIndex].isEmpty() && !fields[likeCountIndex].equals("null")) {
+                    try {
+                        philosopher.setLikeCount(Integer.parseInt(fields[likeCountIndex]));
+                    } catch (NumberFormatException e) {
+                        philosopher.setLikeCount(0);
+                    }
+                } else {
+                    philosopher.setLikeCount(0);
+                }
+
+                // 解析创建时间
+                if (fields.length > createdAtIndex && !fields[createdAtIndex].equals("未知时间") && !fields[createdAtIndex].isEmpty() && !fields[createdAtIndex].equals("null")) {
+                    philosopher.setCreatedAt(LocalDateTime.parse(fields[createdAtIndex], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                }
+                
+                // 解析更新时间
+                if (fields.length > updatedAtIndex && !fields[updatedAtIndex].equals("未知时间") && !fields[updatedAtIndex].isEmpty() && !fields[updatedAtIndex].equals("null")) {
+                    philosopher.setUpdatedAt(LocalDateTime.parse(fields[updatedAtIndex], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                }
+
+                // 优先更新，若不存在再插入；作者为空时不覆盖现有作者（COALESCE）
+                try {
+                    // 解析创建者ID
+                    Long creatorUserId = null;
+                    if (fields.length > creatorIdIndex && fields[creatorIdIndex] != null) {
+                        String u = fields[creatorIdIndex].trim();
+                        if (!u.isEmpty() && !"null".equalsIgnoreCase(u) && !"已注销".equals(u)) {
+                            try {
+                                Long uid = Long.parseLong(u);
+                                String checkUserSql = "SELECT id FROM users WHERE id = ? LIMIT 1";
+                                jakarta.persistence.Query cu = entityManager.createNativeQuery(checkUserSql);
+                                cu.setParameter(1, uid);
+                                java.util.List<?> ur = cu.getResultList();
+                                if (!ur.isEmpty()) creatorUserId = uid;
+                            } catch (NumberFormatException ignore) {}
+                        }
+                    }
+
+                    final String tableName = "philosophers";
+                    final String context = "哲学家导入";
+
+                    List<String> updateAssignments = new ArrayList<>();
+                    List<Object> updateParams = new ArrayList<>();
+
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "name", philosopher.getName(), context, true);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "name_en", philosopher.getNameEn(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "birth_year", philosopher.getBirthYear(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "death_year", philosopher.getDeathYear(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "nationality", philosopher.getNationality(), context, false);
+
+                    if (philosopherBioColumnExists) {
+                        updateAssignments.add(philosopherBioColumn + " = ?");
+                        updateParams.add(philosopher.getBio());
+                    }
+                    if (philosopherBioEnColumnExists) {
+                        addUpdateColumn(updateAssignments, updateParams, tableName, "bio_en", philosopher.getBioEn(), context, false);
+                    }
+
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "image_url", philosopher.getImageUrl(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "like_count",
+                            philosopher.getLikeCount() != null ? philosopher.getLikeCount() : 0, context, false);
+
+                    if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                        updateAssignments.add("updated_at = ?");
+                        updateParams.add(philosopher.getUpdatedAt() != null ? philosopher.getUpdatedAt() : java.time.LocalDateTime.now());
+                    }
+                    if (ensureColumnExists(tableName, "user_id", false, context)) {
+                        updateAssignments.add("user_id = COALESCE(?, user_id)");
+                        updateParams.add(creatorUserId);
+                    }
+
+                    String updateSql = "UPDATE " + tableName + " SET " + String.join(", ", updateAssignments) + " WHERE id = ?";
+                    updateParams.add(philosopher.getId());
+
+                    jakarta.persistence.Query updateQ = entityManager.createNativeQuery(updateSql);
+                    for (int p = 0; p < updateParams.size(); p++) {
+                        updateQ.setParameter(p + 1, updateParams.get(p));
+                    }
+                    int updated = updateQ.executeUpdate();
+
+                    if (updated == 0) {
+                        List<String> insertColumns = new ArrayList<>();
+                        List<Object> insertParams = new ArrayList<>();
+
+                        addInsertColumn(insertColumns, insertParams, tableName, "id", philosopher.getId(), context, true);
+                        addInsertColumn(insertColumns, insertParams, tableName, "name", philosopher.getName(), context, true);
+                        addInsertColumn(insertColumns, insertParams, tableName, "name_en", philosopher.getNameEn(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "birth_year", philosopher.getBirthYear(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "death_year", philosopher.getDeathYear(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "nationality", philosopher.getNationality(), context, false);
+
+                        if (philosopherBioColumnExists) {
+                            insertColumns.add(philosopherBioColumn);
+                            insertParams.add(philosopher.getBio());
+                        }
+                        if (philosopherBioEnColumnExists) {
+                            addInsertColumn(insertColumns, insertParams, tableName, "bio_en", philosopher.getBioEn(), context, false);
+                        }
+
+                        addInsertColumn(insertColumns, insertParams, tableName, "image_url", philosopher.getImageUrl(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "like_count",
+                                philosopher.getLikeCount() != null ? philosopher.getLikeCount() : 0, context, false);
+
+                        if (ensureColumnExists(tableName, "user_id", false, context)) {
+                            insertColumns.add("user_id");
+                            insertParams.add(creatorUserId);
+                        }
+                        if (ensureColumnExists(tableName, "created_at", false, context)) {
+                            insertColumns.add("created_at");
+                            insertParams.add(philosopher.getCreatedAt());
+                        }
+                        if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                            insertColumns.add("updated_at");
+                            insertParams.add(philosopher.getUpdatedAt() != null ? philosopher.getUpdatedAt() : java.time.LocalDateTime.now());
+                        }
+
+                        String insertSql = "INSERT INTO " + tableName + " (" + String.join(", ", insertColumns) + ") VALUES (" +
+                                String.join(", ", Collections.nCopies(insertColumns.size(), "?")) + ")";
+                        jakarta.persistence.Query insertQ = entityManager.createNativeQuery(insertSql);
+                        for (int p = 0; p < insertParams.size(); p++) {
+                            insertQ.setParameter(p + 1, insertParams.get(p));
+                        }
+                        int rows = insertQ.executeUpdate();
+                        if (rows > 0) {
+                            success++;
+                            logger.debug("哲学家插入成功: ID={}, name={}", philosopher.getId(), philosopher.getName());
+                        } else {
+                            logger.warn("哲学家ID {} 插入失败", philosopher.getId());
+                            failed++;
+                            recordFailureDetail(result, sectionName, index, fields, "数据库未插入任何记录", null);
+                        }
+                    } else {
+                        success++;
+                        logger.debug("哲学家更新成功: ID={}, name={}", philosopher.getId(), philosopher.getName());
+                    }
+                } catch (Exception saveException) {
+                    logger.error("保存哲学家时发生异常: ID={}, 错误: {}", philosopher.getId(), saveException.getMessage(), saveException);
+                    throw saveException;
+                }
+
+            } catch (Exception e) {
+                failed++;
+                logger.error("导入哲学家失败: " + Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "导入失败", e);
+            }
+        }
+
+        result.addResult(sectionName, success, failed);
+        logger.info("哲学家数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    public void importContentsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importContents(result, data);
+                // 在事务内刷新缓存，确保之前导入的数据对后续查询可见
+                entityManager.flush();
+                entityManager.clear();
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("内容导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importContents(ImportResult result, List<String[]> data) {
+        if (data == null) {
+            logger.warn("内容数据为null，跳过了内容导入");
+            result.addResult("内容", 0, 0);
+            return;
+        }
+
+        logger.info("开始导入内容数据，共 {} 条", data.size());
+        final String sectionName = "内容";
+        int success = 0, failed = 0;
+
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                // 跳过空行
+                if (fields == null || fields.length == 0 || isRowEmpty(fields)) {
+                    logger.debug("跳过空行: 行号 {}", index + 1);
+                    continue;
+                }
+                
+                // 跳过标题行
+                if (fields.length > 0 && ("ID".equals(fields[0].trim()) || "id".equals(fields[0].trim().toLowerCase()))) {
+                    logger.debug("跳过标题行: {}", Arrays.toString(fields));
+                    continue;
+                }
+                
+                // 旧版导出依赖至少5列，这里为兼容性补齐缺失列
+                fields = ensureMinimumColumns(fields, 5);
+
+                // 使用更灵活的ID解析方法
+                Long contentId = parseContentIdentifier(fields[0]);
+                if (contentId == null) {
+                    logger.warn("无法解析内容ID，跳过: 第一个字段 = '{}'", fields[0]);
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                        "无法解析内容ID: '" + fields[0] + "'",
+                        null);
+                    continue;
+                }
+                logger.debug("处理内容ID: {}, 字段: {}", contentId, Arrays.toString(fields));
+                
+                // 直接创建新内容，不查找现有内容
+                Content content = new Content();
+                content.setId(contentId); // 设置CSV中的ID
+                logger.debug("创建新内容，使用CSV中的ID: {}", contentId);
+                
+                // 设置内容文本
+                String contentText = fields[1] == null ? "" : fields[1];
+                content.setContent(contentText);
+                
+                // 设置英文内容（如果存在）
+                if (fields.length > 2 && !fields[2].isEmpty() && !fields[2].equals("null")) {
+                    content.setContentEn(fields[2]);
+                }
+                
+                // 设置排序索引（如果存在）
+                if (fields.length > 7 && !fields[7].isEmpty() && !fields[7].equals("null")) {
+                    try {
+                        content.setOrderIndex(Integer.parseInt(fields[7]));
+                    } catch (NumberFormatException e) {
+                        content.setOrderIndex(0);
+                    }
+                } else {
+                    content.setOrderIndex(0);
+                }
+                
+                // 暂时跳过关联设置，避免乐观锁冲突
+                // 关联将在后续的关联导入方法中处理
+                logger.debug("跳过内容关联设置，将在后续步骤中处理");
+                
+                // 设置必需字段的默认值
+                content.setLikeCount(0);
+                content.setPrivate(false);
+                content.setStatus(0);
+                content.setBlocked(false);
+                content.setVersion(1L); // 设置初始版本号为1，避免乐观锁冲突
+
+                logger.debug("准备保存内容: ID={}, content={}", contentId, contentText);
+
+                // 优先尝试更新已有内容，避免删除后丢失既有作者等关联
+                try {
+                    final String tableName = "contents";
+                    final String context = "内容导入";
+
+                    List<String> updateAssignments = new ArrayList<>();
+                    List<Object> updateParams = new ArrayList<>();
+
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "content", content.getContent(), context, true);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "content_en", content.getContentEn(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "order_index", content.getOrderIndex(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "like_count", content.getLikeCount(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "is_private", content.isPrivate(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "status", content.getStatus(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "is_blocked", content.isBlocked(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "version", content.getVersion(), context, false);
+
+                    if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                        updateAssignments.add("updated_at = ?");
+                        updateParams.add(java.time.LocalDateTime.now());
+                    }
+
+                    String updateSql = "UPDATE " + tableName + " SET " + String.join(", ", updateAssignments) + " WHERE id = ?";
+                    updateParams.add(contentId);
+
+                    jakarta.persistence.Query updateQuery = entityManager.createNativeQuery(updateSql);
+                    for (int p = 0; p < updateParams.size(); p++) {
+                        updateQuery.setParameter(p + 1, updateParams.get(p));
+                    }
+
+                    int updatedRows = updateQuery.executeUpdate();
+
+                    if (updatedRows == 0) {
+                        List<String> insertColumns = new ArrayList<>();
+                        List<Object> insertParams = new ArrayList<>();
+
+                        addInsertColumn(insertColumns, insertParams, tableName, "id", contentId, context, true);
+                        addInsertColumn(insertColumns, insertParams, tableName, "content", content.getContent(), context, true);
+                        addInsertColumn(insertColumns, insertParams, tableName, "content_en", content.getContentEn(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "order_index", content.getOrderIndex(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "like_count", content.getLikeCount(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "is_private", content.isPrivate(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "status", content.getStatus(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "is_blocked", content.isBlocked(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "version", content.getVersion(), context, false);
+
+                        if (ensureColumnExists(tableName, "philosopher_id", false, context)) {
+                            insertColumns.add("philosopher_id");
+                            insertParams.add(null);
+                        }
+                        if (ensureColumnExists(tableName, "school_id", false, context)) {
+                            insertColumns.add("school_id");
+                            insertParams.add(null);
+                        }
+                        if (ensureColumnExists(tableName, "user_id", false, context)) {
+                            insertColumns.add("user_id");
+                            insertParams.add(null);
+                        }
+
+                        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+                        if (ensureColumnExists(tableName, "created_at", false, context)) {
+                            insertColumns.add("created_at");
+                            insertParams.add(now);
+                        }
+                        if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                            insertColumns.add("updated_at");
+                            insertParams.add(now);
+                        }
+
+                        String insertSql = "INSERT INTO " + tableName + " (" + String.join(", ", insertColumns) + ") VALUES (" +
+                                String.join(", ", Collections.nCopies(insertColumns.size(), "?")) + ")";
+                        jakarta.persistence.Query insertQuery = entityManager.createNativeQuery(insertSql);
+                        for (int p = 0; p < insertParams.size(); p++) {
+                            insertQuery.setParameter(p + 1, insertParams.get(p));
+                        }
+
+                        int rowsAffected = insertQuery.executeUpdate();
+                        if (rowsAffected > 0) {
+                            logger.debug("内容插入成功: ID={}", contentId);
+                            success++;
+                        } else {
+                            logger.warn("内容ID {} 插入失败", contentId);
+                            failed++;
+                            recordFailureDetail(result, sectionName, index, fields, "数据库未插入任何记录", null);
+                        }
+                    } else {
+                        logger.debug("内容更新成功: ID={}", contentId);
+                        success++;
+                    }
+                } catch (Exception saveException) {
+                    logger.error("保存内容时发生异常: ID={}, 错误: {}", contentId, saveException.getMessage(), saveException);
+                    throw saveException; // 重新抛出异常以便上层捕获
+                }
+
+            } catch (NumberFormatException nfe) {
+                failed++;
+                logger.warn("导入内容失败（数字格式错误）: {}", Arrays.toString(fields), nfe);
+                recordFailureDetail(result, sectionName, index, fields, 
+                    "数字格式错误: " + nfe.getMessage(), nfe);
+            } catch (Exception e) {
+                failed++;
+                logger.error("导入内容失败: " + Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "导入失败", e);
+            }
+        }
+
+        result.addResult(sectionName, success, failed);
+        logger.info("内容数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    public void updateContentAssociationsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                updateContentAssociations(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("内容关联更新事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void updateContentAssociations(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始更新内容关联，共 {} 条", data.size());
+        int success = 0, failed = 0;
+        final String sectionName = "内容关联";
+
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                // 跳过空行
+                if (fields == null || fields.length == 0 || isRowEmpty(fields)) {
+                    continue;
+                }
+                
+                // 跳过标题行
+                if (fields.length > 0 && ("ID".equals(fields[0].trim()) || "id".equals(fields[0].trim().toLowerCase()))) {
+                    continue;
+                }
+                
+                if (fields.length < 5) {
+                    logger.warn("内容关联字段数量不足，跳过: {}", Arrays.toString(fields));
+                    failed++;
+                    continue;
+                }
+
+                // 使用更灵活的ID解析方法
+                Long contentId = parseContentIdentifier(fields[0]);
+                if (contentId == null) {
+                    logger.warn("无法解析内容ID，跳过: 第一个字段 = '{}'", fields[0]);
+                    failed++;
+                    continue;
+                }
+                
+                // 使用原生SQL更新关联，避免JPA实体加载
+                // 注意：当哲学家/学派/作者列为空或为“已注销”时，不覆盖原值（COALESCE 使 NULL 不改变原值）
+
+                // 查找哲学家ID（字段索引3）- 修复：CSV导出的是哲学家ID，不是名称
+                Long philosopherId = null;
+                if (fields.length > 3 && !fields[3].isEmpty() && !fields[3].equals("null")) {
+                    try {
+                        // 使用更灵活的ID解析方法
+                        philosopherId = parseIdFromValue(fields[3]);
+                        if (philosopherId == null) {
+                            // 如果解析失败，尝试作为名称查找（向后兼容）
+                            throw new NumberFormatException("无法解析哲学家ID: " + fields[3]);
+                        }
+                        
+                        // 验证哲学家是否存在 - 添加重试机制处理事务隔离问题
+                        String checkPhilosopherSql = "SELECT id FROM philosophers WHERE id = ? LIMIT 1";
+                        jakarta.persistence.Query checkPhilosopherQuery = entityManager.createNativeQuery(checkPhilosopherSql);
+                        checkPhilosopherQuery.setParameter(1, philosopherId);
+                        List<Object> philosopherResults = checkPhilosopherQuery.getResultList();
+                        
+                        if (!philosopherResults.isEmpty()) {
+                            logger.debug("内容ID {}: 找到哲学家ID {}", contentId, philosopherId);
+                        } else {
+                            // 如果第一次查询失败，可能是事务隔离问题，尝试刷新缓存后重试
+                            logger.warn("内容ID {}: 第一次查询哲学家ID '{}' 失败，尝试刷新缓存后重试", contentId, fields[3]);
+                            entityManager.flush();
+                            entityManager.clear();
+                            
+                            // 重试查询
+                            checkPhilosopherQuery = entityManager.createNativeQuery(checkPhilosopherSql);
+                            checkPhilosopherQuery.setParameter(1, philosopherId);
+                            philosopherResults = checkPhilosopherQuery.getResultList();
+                            
+                            if (!philosopherResults.isEmpty()) {
+                                logger.debug("内容ID {}: 重试后找到哲学家ID {}", contentId, philosopherId);
+                            } else {
+                                logger.warn("内容ID {}: 哲学家ID '{}' 不存在，跳过哲学家关联", contentId, fields[3]);
+                                philosopherId = null;
+                            }
+                        }
+                    } catch (NumberFormatException e) {
+                        // 如果解析哲学家ID失败，尝试作为名称查找（向后兼容）
+                        logger.warn("内容ID {}: 哲学家字段 '{}' 不是有效的ID，尝试作为名称查找", contentId, fields[3]);
+                        try {
+                            String findPhilosopherSql = "SELECT id FROM philosophers WHERE name = ? LIMIT 1";
+                            jakarta.persistence.Query philosopherQuery = entityManager.createNativeQuery(findPhilosopherSql);
+                            philosopherQuery.setParameter(1, fields[3]);
+                            List<Object> philosopherResults = philosopherQuery.getResultList();
+                            if (!philosopherResults.isEmpty()) {
+                                philosopherId = ((Number) philosopherResults.get(0)).longValue();
+                                logger.debug("内容ID {}: 通过名称找到哲学家 '{}' -> ID {}", contentId, fields[3], philosopherId);
+                            } else {
+                                logger.warn("内容ID {}: 哲学家 '{}' 不存在，跳过哲学家关联", contentId, fields[3]);
+                                philosopherId = null;
+                            }
+                        } catch (Exception ex) {
+                            logger.warn("内容ID {}: 查找哲学家 '{}' 时发生错误: {}", contentId, fields[3], ex.getMessage());
+                            philosopherId = null;
+                        }
+                    } catch (Exception e) {
+                        logger.warn("内容ID {}: 查找哲学家ID '{}' 时发生错误: {}", contentId, fields[3], e.getMessage());
+                        philosopherId = null;
+                    }
+                }
+                
+                // 查找学派ID（字段索引4）- 修复：CSV导出的是学派ID，不是名称
+                Long schoolId = null;
+                if (fields.length > 4 && !fields[4].isEmpty() && !fields[4].equals("null")) {
+                    try {
+                        // 使用更灵活的ID解析方法
+                        schoolId = parseIdFromValue(fields[4]);
+                        if (schoolId == null) {
+                            // 如果解析失败，尝试作为名称查找（向后兼容）
+                            throw new NumberFormatException("无法解析学派ID: " + fields[4]);
+                        }
+                        
+                        // 验证学派是否存在 - 添加重试机制处理事务隔离问题
+                        String checkSchoolSql = "SELECT id FROM schools WHERE id = ? LIMIT 1";
+                        jakarta.persistence.Query checkSchoolQuery = entityManager.createNativeQuery(checkSchoolSql);
+                        checkSchoolQuery.setParameter(1, schoolId);
+                        List<Object> schoolResults = checkSchoolQuery.getResultList();
+                        
+                        if (!schoolResults.isEmpty()) {
+                            logger.debug("内容ID {}: 找到学派ID {}", contentId, schoolId);
+                        } else {
+                            // 如果第一次查询失败，可能是事务隔离问题，尝试刷新缓存后重试
+                            logger.warn("内容ID {}: 第一次查询学派ID '{}' 失败，尝试刷新缓存后重试", contentId, fields[4]);
+                            entityManager.flush();
+                            entityManager.clear();
+                            
+                            // 重试查询
+                            checkSchoolQuery = entityManager.createNativeQuery(checkSchoolSql);
+                            checkSchoolQuery.setParameter(1, schoolId);
+                            schoolResults = checkSchoolQuery.getResultList();
+                            
+                            if (!schoolResults.isEmpty()) {
+                                logger.debug("内容ID {}: 重试后找到学派ID {}", contentId, schoolId);
+                            } else {
+                                logger.warn("内容ID {}: 学派ID '{}' 不存在，跳过学派关联", contentId, fields[4]);
+                                schoolId = null;
+                            }
+                        }
+                    } catch (NumberFormatException e) {
+                        // 如果解析学派ID失败，尝试作为名称查找（向后兼容）
+                        logger.warn("内容ID {}: 学派字段 '{}' 不是有效的ID，尝试作为名称查找", contentId, fields[4]);
+                        try {
+                            String findSchoolSql = "SELECT id FROM schools WHERE name = ? LIMIT 1";
+                            jakarta.persistence.Query schoolQuery = entityManager.createNativeQuery(findSchoolSql);
+                            schoolQuery.setParameter(1, fields[4]);
+                            List<Object> schoolResults = schoolQuery.getResultList();
+                            if (!schoolResults.isEmpty()) {
+                                schoolId = ((Number) schoolResults.get(0)).longValue();
+                                logger.debug("内容ID {}: 通过名称找到学派 '{}' -> ID {}", contentId, fields[4], schoolId);
+                            } else {
+                                logger.warn("内容ID {}: 学派 '{}' 不存在，跳过学派关联", contentId, fields[4]);
+                                schoolId = null;
+                            }
+                        } catch (Exception ex) {
+                            logger.warn("内容ID {}: 查找学派 '{}' 时发生错误: {}", contentId, fields[4], ex.getMessage());
+                            schoolId = null;
+                        }
+                    } catch (Exception e) {
+                        logger.warn("内容ID {}: 查找学派ID '{}' 时发生错误: {}", contentId, fields[4], e.getMessage());
+                        schoolId = null;
+                    }
+                }
+                
+                // 查找用户ID（字段索引5）
+                Long userId = null;
+                String rawUserField = (fields.length > 5) ? fields[5] : null;
+                String userIdStr = null;
+                if (rawUserField != null) {
+                    String trimmed = rawUserField.trim();
+                    if (!trimmed.isEmpty() && !"null".equalsIgnoreCase(trimmed) && !"已注销".equals(trimmed)) {
+                        userIdStr = trimmed;
+                    }
+                }
+
+                if (userIdStr != null) {
+                    try {
+                        // 直接解析用户ID，因为CSV导出的是用户ID
+                        userId = Long.parseLong(userIdStr);
+                        
+                        // 验证用户是否存在 - 添加重试机制处理事务隔离问题
+                        String checkUserSql = "SELECT id FROM users WHERE id = ? LIMIT 1";
+                        jakarta.persistence.Query checkUserQuery = entityManager.createNativeQuery(checkUserSql);
+                        checkUserQuery.setParameter(1, userId);
+                        List<Object> userResults = checkUserQuery.getResultList();
+                        
+                        if (!userResults.isEmpty()) {
+                            logger.info("内容ID {}: 找到作者ID {}", contentId, userId);
+                        } else {
+                            // 如果第一次查询失败，可能是事务隔离问题，尝试刷新缓存后重试
+                            logger.warn("内容ID {}: 第一次查询作者ID '{}' 失败，尝试刷新缓存后重试", contentId, userIdStr);
+                            entityManager.flush();
+                            entityManager.clear();
+                            
+                            // 重试查询
+                            checkUserQuery = entityManager.createNativeQuery(checkUserSql);
+                            checkUserQuery.setParameter(1, userId);
+                            userResults = checkUserQuery.getResultList();
+                            
+                            if (!userResults.isEmpty()) {
+                                logger.info("内容ID {}: 重试后找到作者ID {}", contentId, userId);
+                            } else {
+                                // 当在数据库中找不到用户时，记录警告但继续导入（将user_id设为NULL）
+                                logger.warn("内容ID {}: 指定的作者ID '{}' 在数据库中不存在，将user_id设为NULL", contentId, userIdStr);
+                                userId = null;
+                            }
+                        }
+                    } catch (NumberFormatException e) {
+                        // 如果解析用户ID失败，尝试作为用户名或邮箱查找（向后兼容增强）
+                        logger.warn("内容ID {}: 作者字段 '{}' 不是有效的用户ID，尝试作为用户名/邮箱查找", contentId, userIdStr);
+                        try {
+                            // 1) 按用户名查找
+                            String findByUsernameSql = "SELECT id FROM users WHERE username = ? LIMIT 1";
+                            jakarta.persistence.Query byUsername = entityManager.createNativeQuery(findByUsernameSql);
+                            byUsername.setParameter(1, userIdStr);
+                            List<Object> userResults = byUsername.getResultList();
+                            if (!userResults.isEmpty()) {
+                                userId = ((Number) userResults.get(0)).longValue();
+                                logger.info("内容ID {}: 通过用户名找到作者 '{}' -> ID {}", contentId, userIdStr, userId);
+                            } else {
+                                // 2) 按邮箱查找
+                                String findByEmailSql = "SELECT id FROM users WHERE email = ? LIMIT 1";
+                                jakarta.persistence.Query byEmail = entityManager.createNativeQuery(findByEmailSql);
+                                byEmail.setParameter(1, userIdStr);
+                                List<Object> userByEmail = byEmail.getResultList();
+                                if (!userByEmail.isEmpty()) {
+                                    userId = ((Number) userByEmail.get(0)).longValue();
+                                    logger.info("内容ID {}: 通过邮箱找到作者 '{}' -> ID {}", contentId, userIdStr, userId);
+                                } else {
+                                    logger.warn("内容ID {}: 指定的作者 '{}' 在数据库中不存在，将user_id设为NULL", contentId, userIdStr);
+                                    userId = null;
+                                }
+                            }
+                        } catch (Exception ex) {
+                            logger.error("内容ID {}: 在查找作者 '{}' 时发生数据库错误: {}，将user_id设为NULL", contentId, userIdStr, ex.getMessage());
+                            userId = null;
+                        }
+                    } catch (Exception e) {
+                        // 捕获其他潜在的数据库查询异常，记录错误但继续导入
+                        logger.error("内容ID {}: 在查找作者ID '{}' 时发生数据库错误: {}，将user_id设为NULL", contentId, userIdStr, e.getMessage());
+                        userId = null;
+                    }
+                } else {
+                    // 如果CSV中没有提供作者，将user_id设为NULL（这是正常情况）
+                    logger.debug("内容ID {}: CSV文件中未提供作者ID，将user_id设为NULL", contentId);
+                    userId = null;
+                }
+                
+                final String assocTable = "contents";
+                final String assocContext = "内容关联更新";
+                List<String> associationClauses = new ArrayList<>();
+                List<Object> associationParams = new ArrayList<>();
+
+                if (ensureColumnExists(assocTable, "philosopher_id", false, assocContext)) {
+                    associationClauses.add("philosopher_id = COALESCE(?, philosopher_id)");
+                    associationParams.add(philosopherId);
+                }
+                if (ensureColumnExists(assocTable, "school_id", false, assocContext)) {
+                    associationClauses.add("school_id = COALESCE(?, school_id)");
+                    associationParams.add(schoolId);
+                }
+                if (ensureColumnExists(assocTable, "user_id", false, assocContext)) {
+                    associationClauses.add("user_id = COALESCE(?, user_id)");
+                    associationParams.add(userId);
+                }
+
+                if (associationClauses.isEmpty()) {
+                    logger.warn("内容ID {}: 数据库缺少内容关联列，跳过该记录的关联更新", contentId);
+                    failed++;
+                    continue;
+                }
+
+                String sql = "UPDATE " + assocTable + " SET " + String.join(", ", associationClauses) + " WHERE id = ?";
+                associationParams.add(contentId);
+
+                jakarta.persistence.Query query = entityManager.createNativeQuery(sql);
+                for (int p = 0; p < associationParams.size(); p++) {
+                    query.setParameter(p + 1, associationParams.get(p));
+                }
+
+                int updated = query.executeUpdate();
+                if (updated > 0) {
+                    success++;
+                    logger.debug("内容关联更新成功: ID={}, philosopher={}, school={}, user={}", 
+                               contentId, philosopherId, schoolId, userId);
+                } else {
+                    failed++;
+                    logger.warn("内容关联更新失败: ID={} (内容不存在)", contentId);
+                }
+
+            } catch (NumberFormatException nfe) {
+                failed++;
+                logger.warn("更新内容关联失败（数字格式错误）: {}", Arrays.toString(fields), nfe);
+                recordFailureDetail(result, sectionName, index, fields, 
+                    "数字格式错误: " + nfe.getMessage(), nfe);
+            } catch (Exception e) {
+                failed++;
+                logger.warn("更新内容关联失败: " + Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "更新关联失败", e);
+            }
+        }
+
+        result.addResult(sectionName, success, failed);
+        logger.info("内容关联更新完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    /**
+     * 批量修复作者：仅当当前作者为 NULL 时，按映射设置作者ID
+     * CSV 预期两列：[内容ID, 作者ID]
+     */
+    @Transactional
+    public ImportResult repairContentAuthorsFromCsv(MultipartFile file) {
+        ImportResult result = new ImportResult();
+        int success = 0, failed = 0;
+        try {
+            List<String> lines = new ArrayList<>();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    line = line.trim();
+                    if (line.isEmpty()) continue;
+                    lines.add(line);
+                }
+            }
+
+            for (String line : lines) {
+                try {
+                    String[] fields = parseCsvLine(line);
+                    if (fields.length < 2) {
+                        failed++;
+                        continue;
+                    }
+                    Long contentId = Long.parseLong(fields[0].trim());
+                    Long userId = Long.parseLong(fields[1].trim());
+
+                    String sql = "UPDATE contents SET user_id = ? WHERE id = ? AND user_id IS NULL";
+                    jakarta.persistence.Query query = entityManager.createNativeQuery(sql);
+                    query.setParameter(1, userId);
+                    query.setParameter(2, contentId);
+                    int updated = query.executeUpdate();
+                    if (updated > 0) {
+                        success++;
+                    } else {
+                        // 可能是内容不存在，或已有作者非空
+                        failed++;
+                    }
+                } catch (Exception e) {
+                    failed++;
+                }
+            }
+
+            result.setSuccess(true);
+            result.setMessage("作者批量修复完成");
+            result.addResult("作者修复", success, failed);
+            result.setTotalImported(success);
+            result.setTotalFailed(failed);
+        } catch (Exception e) {
+            logger.error("作者批量修复失败", e);
+            result.setSuccess(false);
+            result.setMessage("作者批量修复失败: " + e.getMessage());
+        }
+        return result;
+    }
+
+
+    public void importCommentsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importComments(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("评论导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importComments(ImportResult result, List<String[]> data) {
+        final String sectionName = "评论";
+        if (data == null || data.isEmpty()) {
+            logger.info("评论数据段为空，跳过导入");
+            result.addResult(sectionName, 0, 0);
+            return;
+        }
+
+        logger.info("开始导入评论数据，共 {} 条", data.size());
+
+        Map<String, Integer> headerIndex = Collections.emptyMap();
+        int startIndex = 0;
+        String[] firstRow = data.get(0);
+        if (isHeaderRow(firstRow)) {
+            headerIndex = buildHeaderIndex(firstRow);
+            startIndex = 1;
+            logger.debug("识别到评论数据表头: {}", headerIndex.keySet());
+        }
+
+        if (data.size() <= startIndex) {
+            logger.warn("评论数据段仅包含表头，未找到可导入的数据行");
+            result.addResult(sectionName, 0, 0);
+            return;
+        }
+
+        Map<Long, Boolean> contentExistsCache = new HashMap<>();
+        Map<Long, Boolean> commentExistsCache = new HashMap<>();
+        Map<Long, Boolean> userIdExistsCache = new HashMap<>();
+        Map<String, Optional<Long>> userLookupCache = new HashMap<>();
+        Set<Long> importedCommentIds = new HashSet<>();
+        List<long[]> deferredParentUpdates = new ArrayList<>();
+
+        int success = 0;
+        int failed = 0;
+
+        for (int rowIndex = startIndex; rowIndex < data.size(); rowIndex++) {
+            String[] fields = data.get(rowIndex);
+            if (fields == null || isRowEmpty(fields)) {
+                logger.debug("跳过空白评论数据行: {}", Arrays.toString(fields));
+                continue;
+            }
+
+            try {
+                ParsedCommentRow row = buildCommentRow(fields, headerIndex, contentExistsCache,
+                        userLookupCache, userIdExistsCache);
+
+                Long parentIdForInsert = row.parentId;
+                if (parentIdForInsert != null && !commentExists(parentIdForInsert, commentExistsCache)) {
+                    deferredParentUpdates.add(new long[]{row.id, parentIdForInsert});
+                    parentIdForInsert = null;
+                    logger.debug("父评论 {} 暂未存在，延迟关联评论 {}", row.parentId, row.id);
+                }
+
+                String deleteSql = "DELETE FROM comments WHERE id = ?";
+                jakarta.persistence.Query deleteQuery = entityManager.createNativeQuery(deleteSql);
+                deleteQuery.setParameter(1, row.id);
+                deleteQuery.executeUpdate();
+
+                final String tableName = "comments";
+                final String context = "评论导入";
+
+                List<String> insertColumns = new ArrayList<>();
+                List<Object> insertParams = new ArrayList<>();
+
+                addInsertColumn(insertColumns, insertParams, tableName, "id", row.id, context, true);
+                addInsertColumn(insertColumns, insertParams, tableName, "body", row.body, context, true);
+                addInsertColumn(insertColumns, insertParams, tableName, "like_count",
+                        row.likeCount != null ? row.likeCount : 0, context, false);
+                addInsertColumn(insertColumns, insertParams, tableName, "status",
+                        row.status != null ? row.status : 0, context, false);
+
+                if (ensureColumnExists(tableName, "is_private", false, context)) {
+                    insertColumns.add("is_private");
+                    insertParams.add(row.isPrivate != null ? (row.isPrivate ? 1 : 0) : 0);
+                }
+                if (ensureColumnExists(tableName, "is_blocked", false, context)) {
+                    insertColumns.add("is_blocked");
+                    insertParams.add(row.isBlocked != null ? (row.isBlocked ? 1 : 0) : 0);
+                }
+
+                addInsertColumn(insertColumns, insertParams, tableName, "content_id", row.contentId, context, true);
+                addInsertColumn(insertColumns, insertParams, tableName, "user_id", row.userId, context, true);
+                addInsertColumn(insertColumns, insertParams, tableName, "parent_id", parentIdForInsert, context, false);
+                addInsertColumn(insertColumns, insertParams, tableName, "blocked_at", row.blockedAt, context, false);
+                addInsertColumn(insertColumns, insertParams, tableName, "blocked_by", row.blockedById, context, false);
+                addInsertColumn(insertColumns, insertParams, tableName, "privacy_set_at", row.privacySetAt, context, false);
+                addInsertColumn(insertColumns, insertParams, tableName, "privacy_set_by", row.privacySetById, context, false);
+
+                LocalDateTime createdValue = (row.createdAt != null) ? row.createdAt : LocalDateTime.now();
+                LocalDateTime updatedValue = (row.updatedAt != null) ? row.updatedAt : createdValue;
+
+                if (ensureColumnExists(tableName, "created_at", false, context)) {
+                    insertColumns.add("created_at");
+                    insertParams.add(createdValue);
+                }
+                if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                    insertColumns.add("updated_at");
+                    insertParams.add(updatedValue);
+                }
+
+                String insertSql = "INSERT INTO " + tableName + " (" + String.join(", ", insertColumns) + ") VALUES (" +
+                        String.join(", ", Collections.nCopies(insertColumns.size(), "?")) + ")";
+                jakarta.persistence.Query insertQuery = entityManager.createNativeQuery(insertSql);
+                for (int p = 0; p < insertParams.size(); p++) {
+                    insertQuery.setParameter(p + 1, insertParams.get(p));
+                }
+                insertQuery.executeUpdate();
+
+                success++;
+                importedCommentIds.add(row.id);
+                commentExistsCache.put(row.id, true);
+            } catch (IllegalArgumentException parseException) {
+                failed++;
+                logger.warn("解析评论数据失败: {}", parseException.getMessage());
+                recordFailureDetail(result, sectionName, rowIndex, fields, parseException.getMessage(), null);
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入评论失败: {}", Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, rowIndex, fields, "导入失败", e);
+            }
+        }
+
+        if (!deferredParentUpdates.isEmpty() && !importedCommentIds.isEmpty()) {
+            logger.info("开始处理 {} 条延迟的父评论关联", deferredParentUpdates.size());
+            for (long[] pair : deferredParentUpdates) {
+                long commentId = pair[0];
+                long parentId = pair[1];
+                if (!importedCommentIds.contains(commentId)) {
+                    continue;
+                }
+                if (!commentExists(parentId, commentExistsCache)) {
+                    logger.warn("评论 {} 的父评论 {} 仍不存在，跳过延迟关联", commentId, parentId);
+                    continue;
+                }
+                try {
+                    String updateSql = "UPDATE comments SET parent_id = ? WHERE id = ?";
+                    jakarta.persistence.Query updateQuery = entityManager.createNativeQuery(updateSql);
+                    updateQuery.setParameter(1, parentId);
+                    updateQuery.setParameter(2, commentId);
+                    int updated = updateQuery.executeUpdate();
+                    if (updated > 0) {
+                        logger.debug("延迟更新评论 {} 的父评论为 {}", commentId, parentId);
+                    }
+                } catch (Exception e) {
+                    logger.warn("延迟更新父评论关联失败: commentId={}, parentId={}", commentId, parentId, e);
+                }
+            }
+        }
+
+        result.addResult(sectionName, success, failed);
+        logger.info("评论数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    private ParsedCommentRow buildCommentRow(String[] fields,
+                                             Map<String, Integer> headerIndex,
+                                             Map<Long, Boolean> contentExistsCache,
+                                             Map<String, Optional<Long>> userLookupCache,
+                                             Map<Long, Boolean> userIdExistsCache) {
+        ParsedCommentRow row = new ParsedCommentRow();
+
+        String idRaw = extractField(fields, headerIndex, 0, "id", "comment_id", "评论id", "评论编号");
+        Long commentId = parseIdFromValue(idRaw);
+        if (commentId == null) {
+            throw new IllegalArgumentException("缺少或无法解析评论ID: " + idRaw);
+        }
+        row.id = commentId;
+
+        String bodyRaw = extractField(fields, headerIndex, 1, "body", "comment", "内容", "text", "评论内容", "comment_body");
+        if (bodyRaw == null || bodyRaw.isBlank()) {
+            throw new IllegalArgumentException("评论ID " + commentId + " 缺少正文内容");
+        }
+        row.body = bodyRaw;
+
+        String contentRaw = extractField(fields, headerIndex, 3, "content_id", "content", "内容id", "关联内容", "归属内容");
+        Long contentId = parseContentIdentifier(contentRaw);
+        if (contentId == null) {
+            throw new IllegalArgumentException("评论ID " + commentId + " 缺少内容ID");
+        }
+        if (!contentExists(contentId, contentExistsCache)) {
+            throw new IllegalArgumentException("评论ID " + commentId + " 指向的内容ID " + contentId + " 不存在");
+        }
+        row.contentId = contentId;
+
+        String userRaw = extractField(fields, headerIndex, 2, "user_id", "user", "username", "作者", "用户");
+        Long userId = resolveUserIdentifier(userRaw, true, "用户", userLookupCache, userIdExistsCache);
+        if (userId == null) {
+            throw new IllegalArgumentException("评论ID " + commentId + " 的用户 '" + userRaw + "' 不存在");
+        }
+        row.userId = userId;
+
+        String parentRaw = extractField(fields, headerIndex, 4, "parent_id", "parent", "父评论id", "reply_to");
+        row.parentId = parseIdFromValue(parentRaw);
+
+        String likeRaw = extractField(fields, headerIndex, -1, "like_count", "likes", "点赞数");
+        row.likeCount = parseInteger(likeRaw);
+
+        String statusRaw = extractField(fields, headerIndex, -1, "status", "状态");
+        row.status = parseInteger(statusRaw);
+
+        String privateRaw = extractField(fields, headerIndex, -1, "is_private", "private", "是否私密");
+        row.isPrivate = parseBooleanFlexible(privateRaw);
+
+        String blockedRaw = extractField(fields, headerIndex, -1, "is_blocked", "blocked", "是否屏蔽");
+        row.isBlocked = parseBooleanFlexible(blockedRaw);
+
+        String createdRaw = extractField(fields, headerIndex, 5, "created_at", "create_time", "创建时间", "时间");
+        row.createdAt = parseDateTimeFlexible(createdRaw);
+
+        String updatedRaw = extractField(fields, headerIndex, -1, "updated_at", "update_time", "更新时间");
+        row.updatedAt = parseDateTimeFlexible(updatedRaw);
+
+        String blockedAtRaw = extractField(fields, headerIndex, -1, "blocked_at", "屏蔽时间");
+        row.blockedAt = parseDateTimeFlexible(blockedAtRaw);
+
+        String blockedByRaw = extractField(fields, headerIndex, -1, "blocked_by", "屏蔽者", "屏蔽用户");
+        row.blockedById = resolveUserIdentifier(blockedByRaw, false, "屏蔽操作用户", userLookupCache, userIdExistsCache);
+
+        String privacyAtRaw = extractField(fields, headerIndex, -1, "privacy_set_at", "私密设置时间");
+        row.privacySetAt = parseDateTimeFlexible(privacyAtRaw);
+
+        String privacyByRaw = extractField(fields, headerIndex, -1, "privacy_set_by", "私密设置用户");
+        row.privacySetById = resolveUserIdentifier(privacyByRaw, false, "私密设置用户", userLookupCache, userIdExistsCache);
+
+        return row;
+    }
+
+    private boolean isHeaderRow(String[] fields) {
+        if (fields == null || fields.length == 0) {
+            return false;
+        }
+        String first = sanitizeField(fields[0]);
+        if (first == null || first.isBlank()) {
+            return false;
+        }
+        return !PURE_NUMBER_PATTERN.matcher(first).matches();
+    }
+
+    private boolean isRowEmpty(String[] fields) {
+        for (String field : fields) {
+            String value = sanitizeField(field);
+            if (value != null && !value.isBlank() && !"null".equalsIgnoreCase(value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean isUserHeaderRow(String[] fields) {
+        if (fields == null || fields.length == 0) {
+            return false;
+        }
+        String first = sanitizeField(fields[0]);
+        if (first == null || first.isBlank()) {
+            return false;
+        }
+        String normalized = first.toLowerCase(Locale.ROOT);
+        if ("id".equals(normalized) || "用户id".equals(normalized) || "编号".equals(normalized)) {
+            return true;
+        }
+        if (normalized.contains("id") && fields.length > 1) {
+            String second = sanitizeField(fields[1]);
+            if (second != null) {
+                String normalizedSecond = second.toLowerCase(Locale.ROOT);
+                return normalizedSecond.contains("username") || normalizedSecond.contains("用户");
+            }
+        }
+        return false;
+    }
+
+    private boolean shouldSilentlySkipNonUserRow(String[] fields) {
+        if (fields == null || fields.length == 0) {
+            return true;
+        }
+        String first = sanitizeField(fields[0]);
+        if (first == null || first.isBlank()) {
+            return true;
+        }
+        if (parseIdFromValue(first) != null) {
+            return false;
+        }
+        String usernameCandidate = fields.length > 1 ? sanitizeField(fields[1]) : null;
+        String emailCandidate = fields.length > 2 ? sanitizeField(fields[2]) : null;
+        if (emailCandidate != null && emailCandidate.contains("@")) {
+            return false;
+        }
+        if (usernameCandidate != null && usernameCandidate.length() >= 3) {
+            return false;
+        }
+        return true;
+    }
+
+    private Map<String, Integer> buildHeaderIndex(String[] header) {
+        Map<String, Integer> index = new HashMap<>();
+        if (header == null) {
+            return index;
+        }
+        for (int i = 0; i < header.length; i++) {
+            String key = header[i];
+            if (key == null) {
+                continue;
+            }
+            index.put(normalizeHeaderKey(key), i);
+        }
+        return index;
+    }
+
+    private String normalizeHeaderKey(String header) {
+        return header == null ? "" : header.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String extractField(String[] fields, Map<String, Integer> headerIndex, int fallbackIndex, String... keys) {
+        if (fields == null) {
+            return null;
+        }
+
+        if (headerIndex != null && !headerIndex.isEmpty() && keys != null) {
+            for (String key : keys) {
+                if (key == null) continue;
+                Integer idx = headerIndex.get(normalizeHeaderKey(key));
+                if (idx != null && idx >= 0 && idx < fields.length) {
+                    return sanitizeField(fields[idx]);
+                }
+            }
+        }
+
+        if (fallbackIndex >= 0 && fallbackIndex < fields.length) {
+            return sanitizeField(fields[fallbackIndex]);
+        }
+
+        return null;
+    }
+
+    private String sanitizeField(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
+            trimmed = trimmed.substring(1, trimmed.length() - 1);
+        }
+        return trimmed;
+    }
+
+    /**
+     * 兼容旧CSV：补齐缺失的列，避免下游访问越界。
+     */
+    private String[] ensureMinimumColumns(String[] fields, int minColumns) {
+        if (fields == null) {
+            return new String[minColumns];
+        }
+        if (fields.length >= minColumns) {
+            return fields;
+        }
+        String[] expanded = Arrays.copyOf(fields, minColumns);
+        for (int i = fields.length; i < minColumns; i++) {
+            expanded[i] = "";
+        }
+        return expanded;
+    }
+
+    private Long parseIdFromValue(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.isEmpty() || "null".equalsIgnoreCase(value)) {
+            return null;
+        }
+        if (PURE_NUMBER_PATTERN.matcher(value).matches()) {
+            try {
+                return Long.parseLong(value);
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        Matcher matcher = ID_IN_OBJECT_PATTERN.matcher(value);
+        if (matcher.find()) {
+            try {
+                return Long.parseLong(matcher.group(1));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        matcher = ANY_NUMBER_PATTERN.matcher(value);
+        Long candidate = null;
+        while (matcher.find()) {
+            candidate = Long.parseLong(matcher.group(1));
+        }
+        return candidate;
+    }
+
+    private Long parseContentIdentifier(String raw) {
+        Long numeric = parseIdFromValue(raw);
+        if (numeric != null) {
+            return numeric;
+        }
+        String normalized = normalizeSymbolicContentId(raw);
+        if (normalized == null) {
+            return null;
+        }
+        return symbolicContentIdCache.computeIfAbsent(normalized, key -> {
+            long synthetic = generateSyntheticContentId(key);
+            logger.debug("为符号内容标识'{}'生成合成ID {}", key, synthetic);
+            return synthetic;
+        });
+    }
+
+    private String normalizeSymbolicContentId(String raw) {
+        String sanitized = sanitizeField(raw);
+        if (sanitized == null) {
+            return null;
+        }
+        String normalized = sanitized.replaceAll("\\s+", " ").trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        boolean hasLetter = normalized.codePoints().anyMatch(Character::isLetter);
+        if (!hasLetter) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private long generateSyntheticContentId(String normalizedKey) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(normalizedKey.getBytes(StandardCharsets.UTF_8));
+            long value = 0L;
+            for (int i = 0; i < Math.min(8, hash.length); i++) {
+                value = (value << 8) | (hash[i] & 0xFF);
+            }
+            if (value == Long.MIN_VALUE) {
+                value = Long.MAX_VALUE;
+            }
+            long positive = Math.abs(value);
+            if (positive == 0L) {
+                positive = 1L;
+            }
+            return -positive;
+        } catch (NoSuchAlgorithmException e) {
+            long fallback = normalizedKey.hashCode();
+            long positive = Math.abs(fallback);
+            if (positive == 0L) {
+                positive = 1L;
+            }
+            return -positive;
+        }
+    }
+
+    private Integer parseInteger(String raw) {
+        Long value = parseIdFromValue(raw);
+        return value == null ? null : value.intValue();
+    }
+
+    private Boolean parseBooleanFlexible(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.trim().toLowerCase(Locale.ROOT);
+        if (TRUE_STRING_VALUES.contains(value)) {
+            return Boolean.TRUE;
+        }
+        if (FALSE_STRING_VALUES.contains(value)) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    private LocalDateTime parseDateTimeFlexible(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.isEmpty() || "null".equalsIgnoreCase(value) || "未知时间".equals(value)) {
+            return null;
+        }
+        for (DateTimeFormatter formatter : SUPPORTED_COMMENT_DATE_FORMATS) {
+            try {
+                return LocalDateTime.parse(value, formatter);
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+        try {
+            return OffsetDateTime.parse(value).toLocalDateTime();
+        } catch (DateTimeParseException ignored) {
+        }
+        try {
+            return LocalDateTime.parse(value.replace(" ", "T"));
+        } catch (DateTimeParseException ignored) {
+        }
+        logger.debug("无法解析日期时间字段: {}", value);
+        return null;
+    }
+
+    private boolean contentExists(Long id, Map<Long, Boolean> cache) {
+        if (id == null) {
+            return false;
+        }
+        return cache.computeIfAbsent(id, key -> contentRepository.existsById(key));
+    }
+
+    private boolean commentExists(Long id, Map<Long, Boolean> cache) {
+        if (id == null) {
+            return false;
+        }
+        return cache.computeIfAbsent(id, key -> commentRepository.existsById(key));
+    }
+
+    private boolean userExists(Long id, Map<Long, Boolean> cache) {
+        if (id == null) {
+            return false;
+        }
+        return cache.computeIfAbsent(id, key -> userRepository.existsById(key));
+    }
+
+    private Long resolveUserIdentifier(String raw,
+                                       boolean required,
+                                       String fieldName,
+                                       Map<String, Optional<Long>> userLookupCache,
+                                       Map<Long, Boolean> userIdExistsCache) {
+        if (raw == null || raw.isBlank() || "null".equalsIgnoreCase(raw.trim()) || "已注销".equals(raw.trim())) {
+            if (required) {
+                throw new IllegalArgumentException(fieldName + "缺失");
+            }
+            return null;
+        }
+
+        String value = raw.trim();
+        Long userId = resolveUserIdentifierInternal(value, userLookupCache, userIdExistsCache);
+        if (userId == null && required) {
+            throw new IllegalArgumentException(fieldName + " '" + raw + "' 不存在");
+        }
+        return userId;
+    }
+
+    private Long resolveUserIdentifierInternal(String raw,
+                                               Map<String, Optional<Long>> userLookupCache,
+                                               Map<Long, Boolean> userIdExistsCache) {
+        Optional<Long> cached = userLookupCache.get(raw);
+        if (cached != null) {
+            return cached.orElse(null);
+        }
+
+        Long numeric = parseIdFromValue(raw);
+        if (numeric != null) {
+            if (userExists(numeric, userIdExistsCache)) {
+                userLookupCache.put(raw, Optional.of(numeric));
+                return numeric;
+            } else {
+                userLookupCache.put(raw, Optional.empty());
+                return null;
+            }
+        }
+
+        Optional<User> byUsername = userRepository.findByUsername(raw);
+        if (byUsername.isPresent()) {
+            Long id = byUsername.get().getId();
+            userIdExistsCache.put(id, true);
+            userLookupCache.put(raw, Optional.of(id));
+            return id;
+        }
+
+        Optional<User> byEmail = userRepository.findByEmail(raw);
+        if (byEmail.isPresent()) {
+            Long id = byEmail.get().getId();
+            userIdExistsCache.put(id, true);
+            userLookupCache.put(raw, Optional.of(id));
+            return id;
+        }
+
+        userLookupCache.put(raw, Optional.empty());
+        return null;
+    }
+
+    private static class ParsedCommentRow {
+        Long id;
+        String body;
+        Long contentId;
+        Long userId;
+        Long parentId;
+        Integer likeCount;
+        Integer status;
+        Boolean isPrivate;
+        Boolean isBlocked;
+        LocalDateTime createdAt;
+        LocalDateTime updatedAt;
+        LocalDateTime blockedAt;
+        Long blockedById;
+        LocalDateTime privacySetAt;
+        Long privacySetById;
+    }
+
+    // 用户登录信息表已下线，保留统计占位，避免影响整体导入流程。
+
+    // 其他表的导入方法可以继续添加...
+
+    @Transactional
+    public void importLikesInTransaction(ImportResult result, List<String[]> data) {
+        importLikes(result, data);
+    }
+
+    private void importLikes(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入点赞数据，共 {} 条", data.size());
+        int success = 0, failed = 0;
+
+        for (String[] fields : data) {
+            try {
+                if (fields.length < 5) continue;
+
+                Like like = new Like();
+                like.setId(Long.parseLong(fields[0]));
+
+                // 解析用户
+                if (!fields[1].isEmpty()) {
+                    Optional<User> user = userRepository.findById(Long.parseLong(fields[1]));
+                    if (user.isPresent()) {
+                        like.setUser(user.get());
+                    } else {
+                        logger.warn("用户ID '{}' 不存在，跳过点赞记录", fields[1]);
+                        continue;
+                    }
+                }
+
+                // 解析实体类型
+                try {
+                    like.setEntityType(Like.EntityType.valueOf(fields[2]));
+                } catch (IllegalArgumentException e) {
+                    logger.warn("无效的实体类型 '{}'", fields[2]);
+                    continue;
+                }
+
+                like.setEntityId(Long.parseLong(fields[3]));
+
+                // 解析创建时间
+                if (!fields[4].equals("未知时间") && !fields[4].isEmpty() && !fields[4].equals("null")) {
+                    like.setCreatedAt(LocalDateTime.parse(fields[4], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                }
+
+                likeRepository.save(like);
+                success++;
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入点赞失败: " + Arrays.toString(fields), e);
+            }
+        }
+
+        result.addResult("点赞", success, failed);
+        logger.info("点赞数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    @Transactional
+    public void importUserContentEditsInTransaction(ImportResult result, List<String[]> data) {
+        importUserContentEdits(result, data);
+    }
+
+    private void importUserContentEdits(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入用户内容编辑数据，共 {} 条", data.size());
+        int success = 0, failed = 0;
+
+        for (String[] fields : data) {
+            try {
+                if (fields.length < 8) continue;
+
+                UserContentEdit edit = new UserContentEdit();
+                edit.setId(Long.parseLong(fields[0]));
+
+                // 解析用户
+                if (!fields[1].isEmpty()) {
+                    Optional<User> user = userRepository.findById(Long.parseLong(fields[1]));
+                    if (user.isPresent()) {
+                        edit.setUser(user.get());
+                    } else {
+                        logger.warn("用户ID '{}' 不存在，跳过内容编辑记录", fields[1]);
+                        continue;
+                    }
+                }
+
+                edit.setContent(fields[2]);
+                edit.setTitle(fields[3]);
+
+                // 解析哲学家
+                if (!fields[4].isEmpty() && !fields[4].equals("null")) {
+                    Optional<Philosopher> philosopher = philosopherRepository.findById(Long.parseLong(fields[4]));
+                    if (philosopher.isPresent()) {
+                        edit.setPhilosopher(philosopher.get());
+                    } else {
+                        logger.warn("哲学家ID '{}' 不存在，跳过内容编辑记录", fields[4]);
+                        continue;
+                    }
+                }
+
+                // 解析学派
+                if (!fields[5].isEmpty() && !fields[5].equals("null")) {
+                    Optional<School> school = schoolRepository.findById(Long.parseLong(fields[5]));
+                    if (school.isPresent()) {
+                        edit.setSchool(school.get());
+                    } else {
+                        logger.warn("学派ID '{}' 不存在，跳过内容编辑记录", fields[5]);
+                        continue;
+                    }
+                }
+
+                // 解析状态
+                try {
+                    edit.setStatus(UserContentEdit.EditStatus.valueOf(fields[6]));
+                } catch (IllegalArgumentException e) {
+                    logger.warn("无效的状态 '{}', 使用默认状态PENDING", fields[6]);
+                    edit.setStatus(UserContentEdit.EditStatus.PENDING);
+                }
+
+                // 解析创建时间
+                if (!fields[7].equals("未知时间") && !fields[7].isEmpty() && !fields[7].equals("null")) {
+                    edit.setCreatedAt(LocalDateTime.parse(fields[7], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                }
+
+                userContentEditRepository.save(edit);
+                success++;
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入用户内容编辑失败: " + Arrays.toString(fields), e);
+            }
+        }
+
+        result.addResult("用户内容编辑", success, failed);
+        logger.info("用户内容编辑数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    @Transactional
+    public void importUserBlocksInTransaction(ImportResult result, List<String[]> data) {
+        importUserBlocks(result, data);
+    }
+
+    private void importUserBlocks(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入用户屏蔽数据，共 {} 条", data.size());
+        int success = 0, failed = 0;
+
+        for (String[] fields : data) {
+            try {
+                if (fields.length < 4) continue;
+
+                UserBlock block = new UserBlock();
+                block.setId(Long.parseLong(fields[0]));
+
+                // 解析屏蔽者
+                if (!fields[1].isEmpty() && !fields[1].equals("null")) {
+                    Optional<User> blocker = userRepository.findById(Long.parseLong(fields[1]));
+                    if (blocker.isPresent()) {
+                        block.setBlocker(blocker.get());
+                    } else {
+                        logger.warn("屏蔽者用户ID '{}' 不存在，跳过屏蔽记录", fields[1]);
+                        continue;
+                    }
+                }
+
+                // 解析被屏蔽者
+                if (!fields[2].isEmpty() && !fields[2].equals("null")) {
+                    Optional<User> blocked = userRepository.findById(Long.parseLong(fields[2]));
+                    if (blocked.isPresent()) {
+                        block.setBlocked(blocked.get());
+                    } else {
+                        logger.warn("被屏蔽者用户ID '{}' 不存在，跳过屏蔽记录", fields[2]);
+                        continue;
+                    }
+                }
+
+                // 解析创建时间
+                if (!fields[3].equals("未知时间") && !fields[3].isEmpty() && !fields[3].equals("null")) {
+                    block.setCreatedAt(LocalDateTime.parse(fields[3], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                }
+
+                userBlockRepository.save(block);
+                success++;
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入用户屏蔽失败: " + Arrays.toString(fields), e);
+            }
+        }
+
+        result.addResult("用户屏蔽", success, failed);
+        logger.info("用户屏蔽数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    @Transactional
+    public void importSchoolTranslationsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importSchoolTranslations(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("学派翻译导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importSchoolTranslations(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入学派翻译数据，共 {} 条", data.size());
+        int success = 0, failed = 0;
+
+        for (String[] fields : data) {
+            try {
+                if (fields.length < 6) {
+                    logger.warn("学派翻译字段数量不足（需要至少6个字段，实际{}个），跳过: {}", fields.length, Arrays.toString(fields));
+                    failed++;
+                    continue;
+                }
+
+                SchoolTranslation translation = new SchoolTranslation();
+                translation.setId(Long.parseLong(fields[0]));
+
+                // 解析学派
+                if (!fields[1].isEmpty() && !fields[1].equals("null")) {
+                    Optional<School> school = schoolRepository.findById(Long.parseLong(fields[1]));
+                    if (school.isPresent()) {
+                        translation.setSchool(school.get());
+                    } else {
+                        logger.warn("学派ID '{}' 不存在，跳过学派翻译记录", fields[1]);
+                        continue;
+                    }
+                }
+
+                translation.setLanguageCode(fields[2]);
+                translation.setNameEn(fields[3]);
+                translation.setDescriptionEn(fields[4]);
+
+                // 解析创建时间
+                LocalDateTime createdAt = null;
+                if (!fields[5].equals("未知时间") && !fields[5].isEmpty() && !fields[5].equals("null")) {
+                    createdAt = LocalDateTime.parse(fields[5], DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                    translation.setCreatedAt(createdAt);
+                }
+
+                // 使用 REPLACE INTO 并动态适配列
+                try {
+                    final String tableName = "schools_translation";
+                    final String context = "学派翻译导入";
+
+                    List<String> replaceColumns = new ArrayList<>();
+                    List<Object> replaceParams = new ArrayList<>();
+
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "id", translation.getId(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "school_id", translation.getSchool().getId(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "language_code", translation.getLanguageCode(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "name_en", translation.getNameEn(), context, false);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "description_en", translation.getDescriptionEn(), context, false);
+
+                    java.time.LocalDateTime createdValue = createdAt != null ? createdAt : java.time.LocalDateTime.now();
+                    if (ensureColumnExists(tableName, "created_at", false, context)) {
+                        replaceColumns.add("created_at");
+                        replaceParams.add(createdValue);
+                    }
+                    if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                        replaceColumns.add("updated_at");
+                        replaceParams.add(createdValue);
+                    }
+
+                    String replaceSql = "REPLACE INTO " + tableName + " (" + String.join(", ", replaceColumns) + ") VALUES (" +
+                            String.join(", ", Collections.nCopies(replaceColumns.size(), "?")) + ")";
+                    jakarta.persistence.Query replaceQuery = entityManager.createNativeQuery(replaceSql);
+                    for (int p = 0; p < replaceParams.size(); p++) {
+                        replaceQuery.setParameter(p + 1, replaceParams.get(p));
+                    }
+                    replaceQuery.executeUpdate();
+                    success++;
+                } catch (Exception e) {
+                    throw e; // 重新抛出异常，让外层catch处理
+                }
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入学派翻译失败: " + Arrays.toString(fields), e);
+            }
+        }
+
+        result.addResult("学派翻译", success, failed);
+        logger.info("学派翻译数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    public void importContentTranslationsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importContentTranslations(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("内容翻译导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importContentTranslations(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入内容翻译数据，共 {} 条", data.size());
+        int success = 0, failed = 0;
+
+        for (String[] fields : data) {
+            try {
+                if (fields.length < 5) {
+                    logger.warn("内容翻译字段数量不足（需要至少5个字段，实际{}个），跳过: {}", fields.length, Arrays.toString(fields));
+                    failed++;
+                    continue;
+                }
+
+                ContentTranslation translation = new ContentTranslation();
+                translation.setId(Long.parseLong(fields[0]));
+
+                // 解析内容
+                if (!fields[1].isEmpty() && !fields[1].equals("null")) {
+                    Optional<Content> content = contentRepository.findById(Long.parseLong(fields[1]));
+                    if (content.isPresent()) {
+                        translation.setContent(content.get());
+                    } else {
+                        logger.warn("内容ID '{}' 不存在，跳过内容翻译记录", fields[1]);
+                        continue;
+                    }
+                }
+
+                translation.setLanguageCode(fields[2]);
+                translation.setContentEn(fields[3]);
+
+                // 解析创建时间
+                LocalDateTime createdAt = null;
+                if (!fields[4].equals("未知时间") && !fields[4].isEmpty() && !fields[4].equals("null")) {
+                    createdAt = LocalDateTime.parse(fields[4], DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                    translation.setCreatedAt(createdAt);
+                }
+
+                // 使用 REPLACE INTO 并动态适配列
+                try {
+                    final String tableName = "contents_translation";
+                    final String context = "内容翻译导入";
+
+                    List<String> replaceColumns = new ArrayList<>();
+                    List<Object> replaceParams = new ArrayList<>();
+
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "id", translation.getId(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "content_id", translation.getContent().getId(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "language_code", translation.getLanguageCode(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "content_en", translation.getContentEn(), context, false);
+
+                    java.time.LocalDateTime createdValue = createdAt != null ? createdAt : java.time.LocalDateTime.now();
+                    if (ensureColumnExists(tableName, "created_at", false, context)) {
+                        replaceColumns.add("created_at");
+                        replaceParams.add(createdValue);
+                    }
+                    if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                        replaceColumns.add("updated_at");
+                        replaceParams.add(createdValue);
+                    }
+
+                    String replaceSql = "REPLACE INTO " + tableName + " (" + String.join(", ", replaceColumns) + ") VALUES (" +
+                            String.join(", ", Collections.nCopies(replaceColumns.size(), "?")) + ")";
+                    jakarta.persistence.Query replaceQuery = entityManager.createNativeQuery(replaceSql);
+                    for (int p = 0; p < replaceParams.size(); p++) {
+                        replaceQuery.setParameter(p + 1, replaceParams.get(p));
+                    }
+                    replaceQuery.executeUpdate();
+                    success++;
+                } catch (Exception e) {
+                    throw e; // 重新抛出异常，让外层catch处理
+                }
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入内容翻译失败: " + Arrays.toString(fields), e);
+            }
+        }
+
+        result.addResult("内容翻译", success, failed);
+        logger.info("内容翻译数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    public void importPhilosopherTranslationsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importPhilosopherTranslations(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("哲学家翻译导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importPhilosopherTranslations(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入哲学家翻译数据，共 {} 条", data.size());
+        int success = 0, failed = 0;
+
+        for (String[] fields : data) {
+            try {
+                if (fields.length < 6) {
+                    logger.warn("哲学家翻译字段数量不足（需要至少6个字段，实际{}个），跳过: {}", fields.length, Arrays.toString(fields));
+                    failed++;
+                    continue;
+                }
+
+                PhilosopherTranslation translation = new PhilosopherTranslation();
+                translation.setId(Long.parseLong(fields[0]));
+
+                // 解析哲学家
+                if (!fields[1].isEmpty() && !fields[1].equals("null")) {
+                    Optional<Philosopher> philosopher = philosopherRepository.findById(Long.parseLong(fields[1]));
+                    if (philosopher.isPresent()) {
+                        translation.setPhilosopher(philosopher.get());
+                    } else {
+                        logger.warn("哲学家ID '{}' 不存在，跳过哲学家翻译记录", fields[1]);
+                        continue;
+                    }
+                }
+
+                translation.setLanguageCode(fields[2]);
+                translation.setNameEn(fields[3]);
+                translation.setBiographyEn(fields[4]);
+
+                // 解析创建时间
+                LocalDateTime createdAt = null;
+                if (!fields[5].equals("未知时间") && !fields[5].isEmpty() && !fields[5].equals("null")) {
+                    createdAt = LocalDateTime.parse(fields[5], DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                    translation.setCreatedAt(createdAt);
+                }
+
+                // 使用 REPLACE INTO 并动态适配列
+                try {
+                    final String tableName = "philosophers_translation";
+                    final String context = "哲学家翻译导入";
+
+                    List<String> replaceColumns = new ArrayList<>();
+                    List<Object> replaceParams = new ArrayList<>();
+
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "id", translation.getId(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "philosopher_id", translation.getPhilosopher().getId(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "language_code", translation.getLanguageCode(), context, true);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "name_en", translation.getNameEn(), context, false);
+                    addInsertColumn(replaceColumns, replaceParams, tableName, "biography_en", translation.getBiographyEn(), context, false);
+
+                    java.time.LocalDateTime createdValue = createdAt != null ? createdAt : java.time.LocalDateTime.now();
+                    if (ensureColumnExists(tableName, "created_at", false, context)) {
+                        replaceColumns.add("created_at");
+                        replaceParams.add(createdValue);
+                    }
+                    if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                        replaceColumns.add("updated_at");
+                        replaceParams.add(createdValue);
+                    }
+
+                    String replaceSql = "REPLACE INTO " + tableName + " (" + String.join(", ", replaceColumns) + ") VALUES (" +
+                            String.join(", ", Collections.nCopies(replaceColumns.size(), "?")) + ")";
+                    jakarta.persistence.Query replaceQuery = entityManager.createNativeQuery(replaceSql);
+                    for (int p = 0; p < replaceParams.size(); p++) {
+                        replaceQuery.setParameter(p + 1, replaceParams.get(p));
+                    }
+                    replaceQuery.executeUpdate();
+                    success++;
+                } catch (Exception e) {
+                    throw e; // 重新抛出异常，让外层catch处理
+                }
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入哲学家翻译失败: " + Arrays.toString(fields), e);
+            }
+        }
+
+        result.addResult("哲学家翻译", success, failed);
+        logger.info("哲学家翻译数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    // 用户关注数据导入方法
+    @Transactional
+    public void importUserFollowsInTransaction(ImportResult result, List<String[]> data) {
+        importUserFollows(result, data);
+    }
+
+    private void importUserFollows(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入用户关注数据，共 {} 条", data.size());
+        int success = 0, failed = 0;
+
+        for (String[] fields : data) {
+            try {
+                if (fields.length < 3) continue;
+
+                UserFollow follow = new UserFollow();
+                follow.setId(Long.parseLong(fields[0]));
+
+                // 解析关注者
+                if (!fields[1].isEmpty()) {
+                    Optional<User> follower = userRepository.findById(Long.parseLong(fields[1]));
+                    if (follower.isPresent()) {
+                        follow.setFollower(follower.get());
+                    } else {
+                        logger.warn("关注者用户ID '{}' 不存在，跳过关注记录", fields[1]);
+                        continue;
+                    }
+                }
+
+                // 解析被关注者
+                if (!fields[2].isEmpty()) {
+                    Optional<User> following = userRepository.findById(Long.parseLong(fields[2]));
+                    if (following.isPresent()) {
+                        follow.setFollowing(following.get());
+                    } else {
+                        logger.warn("被关注者用户ID '{}' 不存在，跳过关注记录", fields[2]);
+                        continue;
+                    }
+                }
+
+                // 解析创建时间
+                if (fields.length > 3 && !fields[3].equals("未知时间") && !fields[3].isEmpty() && !fields[3].equals("null")) {
+                    follow.setCreatedAt(LocalDateTime.parse(fields[3], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                }
+
+                userFollowRepository.save(follow);
+                success++;
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入用户关注失败: " + Arrays.toString(fields), e);
+            }
+        }
+
+        result.addResult("用户关注", success, failed);
+        logger.info("用户关注数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    // 哲学家-学派关联数据导入方法
+    public void importPhilosopherSchoolAssociationsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importPhilosopherSchoolAssociations(result, data);
+                // 在事务内刷新缓存，确保之前导入的数据对后续查询可见
+                entityManager.flush();
+                entityManager.clear();
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("哲学家学派关联导入事务失败", e);
+            // 不要重新抛出异常，避免影响整体导入流程
+        }
+    }
+
+    private void importPhilosopherSchoolAssociations(ImportResult result, List<String[]> data) {
+        if (data == null) return;
+
+        logger.info("开始导入哲学家学派关联数据，共 {} 条", data.size());
+        int success = 0, failed = 0;
+
+        int rowIndex = 0;
+        for (String[] fields : data) {
+            try {
+                rowIndex++;
+                if (fields.length < 2) continue;
+
+                String rawPhilosopher = fields[0] != null ? fields[0].trim() : "";
+                String rawSchool = fields[1] != null ? fields[1].trim() : "";
+
+                // 跳过表头或无效行
+                if (rawPhilosopher.isEmpty() || rawSchool.isEmpty() ||
+                    "哲学家ID".equals(rawPhilosopher) || "学派ID".equals(rawSchool) || "流派ID".equals(rawSchool)) {
+                    logger.debug("跳过关联表头/空行: {}", java.util.Arrays.toString(fields));
+                    continue;
+                }
+
+                Long philosopherId = null;
+                Long schoolId = null;
+
+                // 解析哲学家：优先按ID，否则按名称/英文名称回退
+                try {
+                    philosopherId = Long.parseLong(rawPhilosopher);
+                } catch (NumberFormatException nf) {
+                    try {
+                        String findPhilosopherSql = "SELECT id FROM philosophers WHERE name = ? OR name_en = ? LIMIT 1";
+                        jakarta.persistence.Query pq = entityManager.createNativeQuery(findPhilosopherSql);
+                        pq.setParameter(1, rawPhilosopher);
+                        pq.setParameter(2, rawPhilosopher);
+                        java.util.List<?> pr = pq.getResultList();
+                        if (!pr.isEmpty()) {
+                            philosopherId = ((Number) pr.get(0)).longValue();
+                            logger.debug("通过名称匹配到哲学家: '{}' -> {}", rawPhilosopher, philosopherId);
+                        } else {
+                            logger.warn("第{}行: 无法解析哲学家 '{}' 为有效ID或名称，跳过", rowIndex, rawPhilosopher);
+                            failed++;
+                            continue;
+                        }
+                    } catch (Exception ex) {
+                        logger.warn("第{}行: 查找哲学家 '{}' 发生错误: {}", rowIndex, rawPhilosopher, ex.getMessage());
+                        failed++;
+                        continue;
+                    }
+                }
+
+                // 解析学派：优先按ID，否则按名称/英文名称回退
+                try {
+                    schoolId = Long.parseLong(rawSchool);
+                } catch (NumberFormatException nf) {
+                    try {
+                        String findSchoolSql = "SELECT id FROM schools WHERE name = ? OR name_en = ? LIMIT 1";
+                        jakarta.persistence.Query sq = entityManager.createNativeQuery(findSchoolSql);
+                        sq.setParameter(1, rawSchool);
+                        sq.setParameter(2, rawSchool);
+                        java.util.List<?> sr = sq.getResultList();
+                        if (!sr.isEmpty()) {
+                            schoolId = ((Number) sr.get(0)).longValue();
+                            logger.debug("通过名称匹配到学派: '{}' -> {}", rawSchool, schoolId);
+                        } else {
+                            logger.warn("第{}行: 无法解析学派 '{}' 为有效ID或名称，跳过", rowIndex, rawSchool);
+                            failed++;
+                            continue;
+                        }
+                    } catch (Exception ex) {
+                        logger.warn("第{}行: 查找学派 '{}' 发生错误: {}", rowIndex, rawSchool, ex.getMessage());
+                        failed++;
+                        continue;
+                    }
+                }
+
+                // 查找哲学家
+                Optional<Philosopher> philosopherOpt = philosopherRepository.findById(philosopherId);
+                if (!philosopherOpt.isPresent()) {
+                    logger.warn("哲学家ID '{}' 不存在，跳过关联", philosopherId);
+                    failed++;
+                    continue;
+                }
+
+                // 查找学派
+                Optional<School> schoolOpt = schoolRepository.findById(schoolId);
+                if (!schoolOpt.isPresent()) {
+                    logger.warn("学派ID '{}' 不存在，跳过关联", schoolId);
+                    failed++;
+                    continue;
+                }
+
+                // 使用原生SQL插入关联关系，先删除现有记录再插入新记录
+                try {
+                    // 先删除现有关联记录
+                    String deleteSql = "DELETE FROM philosopher_school WHERE philosopher_id = ? AND school_id = ?";
+                    jakarta.persistence.Query deleteQuery = entityManager.createNativeQuery(deleteSql);
+                    deleteQuery.setParameter(1, philosopherId);
+                    deleteQuery.setParameter(2, schoolId);
+                    deleteQuery.executeUpdate();
+                    
+                    // 插入新关联记录
+                    String sql = "INSERT INTO philosopher_school (philosopher_id, school_id) VALUES (?, ?)";
+                    jakarta.persistence.Query query = entityManager.createNativeQuery(sql);
+                    query.setParameter(1, philosopherId);
+                    query.setParameter(2, schoolId);
+                    int updated = query.executeUpdate();
+                    
+                    if (updated > 0) {
+                        success++;
+                        logger.debug("哲学家学派关联创建成功: philosopher={}, school={}", philosopherId, schoolId);
+                    } else {
+                        logger.warn("哲学家学派关联插入失败: philosopher={}, school={}", philosopherId, schoolId);
+                        failed++;
+                    }
+                } catch (Exception sqlException) {
+                    logger.error("创建哲学家学派关联时发生SQL异常: philosopher={}, school={}, 错误: {}", 
+                               philosopherId, schoolId, sqlException.getMessage());
+                    failed++;
+                }
+
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入哲学家学派关联失败: " + Arrays.toString(fields), e);
+            }
+        }
+
+        result.addResult("哲学家学派关联", success, failed);
+        logger.info("哲学家学派关联数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    /**
+     * 修复作者：从简单CSV中按 [内容ID, 作者ID] 批量设置作者，仅在当前作者为 NULL 时更新
+     */
+    public ImportResult repairAuthorsFromSimpleCsv(org.springframework.web.multipart.MultipartFile file) {
+        ImportResult result = new ImportResult();
+        int success = 0, failed = 0;
+        try (java.io.BufferedReader br = new java.io.BufferedReader(
+                new java.io.InputStreamReader(file.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+            String line;
+            boolean headerSkipped = false;
+            while ((line = br.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
+                String[] fields = parseCsvLine(line);
+                // 跳过可能的表头
+                if (!headerSkipped && fields.length >= 2 && ("内容ID".equals(fields[0]) || !fields[0].matches("\\d+"))) {
+                    headerSkipped = true;
+                    continue;
+                }
+                if (fields.length < 2) {
+                    failed++;
+                    continue;
+                }
+                try {
+                    Long contentId = Long.parseLong(fields[0].trim());
+                    Long userId = Long.parseLong(fields[1].trim());
+
+                    // 校验用户是否存在
+                    String checkUserSql = "SELECT id FROM users WHERE id = ? LIMIT 1";
+                    jakarta.persistence.Query checkUserQuery = entityManager.createNativeQuery(checkUserSql);
+                    checkUserQuery.setParameter(1, userId);
+                    java.util.List<?> userRes = checkUserQuery.getResultList();
+                    if (userRes.isEmpty()) {
+                        logger.warn("作者修复跳过：用户不存在 userId={} (contentId={})", userId, contentId);
+                        failed++;
+                        continue;
+                    }
+
+                    // 校验内容是否存在
+                    String checkContentSql = "SELECT id FROM contents WHERE id = ? LIMIT 1";
+                    jakarta.persistence.Query checkContentQuery = entityManager.createNativeQuery(checkContentSql);
+                    checkContentQuery.setParameter(1, contentId);
+                    java.util.List<?> contentRes = checkContentQuery.getResultList();
+                    if (contentRes.isEmpty()) {
+                        logger.warn("作者修复跳过：内容不存在 contentId={}", contentId);
+                        failed++;
+                        continue;
+                    }
+
+                    // 仅当当前作者为 NULL 时更新
+                    String updateSql = "UPDATE contents SET user_id = ? WHERE id = ? AND user_id IS NULL";
+                    jakarta.persistence.Query updateQuery = entityManager.createNativeQuery(updateSql);
+                    updateQuery.setParameter(1, userId);
+                    updateQuery.setParameter(2, contentId);
+                    int updated = updateQuery.executeUpdate();
+                    if (updated > 0) {
+                        success++;
+                    } else {
+                        // 未更新（可能已有作者或不满足条件）算失败以便关注
+                        failed++;
+                    }
+                } catch (Exception perLineEx) {
+                    failed++;
+                    logger.warn("作者修复处理行失败: {}", java.util.Arrays.toString(fields), perLineEx);
+                }
+            }
+            result.addResult("作者修复", success, failed);
+            result.setSuccess(true);
+            result.setMessage("作者修复完成");
+        } catch (Exception e) {
+            logger.error("作者修复失败", e);
+            result.setSuccess(false);
+            result.setMessage("作者修复失败: " + e.getMessage());
+        }
+        return result;
+    }
+
+    public static class ImportResult {
+        private boolean success;
+        private String message;
+        private Map<String, ImportStats> results = new LinkedHashMap<>();
+        private Map<String, List<String>> failureDetails = new LinkedHashMap<>();
+        private int totalImported = 0;
+        private int totalFailed = 0;
+
+        public void addResult(String tableName, int success, int failed) {
+            results.put(tableName, new ImportStats(success, failed));
+            totalImported += success;
+            totalFailed += failed;
+        }
+
+        // Getters and setters
+        public boolean isSuccess() { return success; }
+        public void setSuccess(boolean success) { this.success = success; }
+
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+
+        public Map<String, ImportStats> getResults() { return results; }
+
+        public Map<String, List<String>> getFailureDetails() { return failureDetails; }
+
+        private static final int MAX_FAILURE_DETAILS_PER_SECTION = 50;
+
+        public void addFailureDetail(String tableName, String detail) {
+            if (detail == null || detail.trim().isEmpty()) {
+                return;
+            }
+            List<String> list = failureDetails.computeIfAbsent(tableName, key -> new ArrayList<>());
+            if (list.size() >= MAX_FAILURE_DETAILS_PER_SECTION) {
+                return;
+            }
+            list.add(detail);
+        }
+
+        public int getTotalImported() { return totalImported; }
+        public int getTotalFailed() { return totalFailed; }
+
+        public void setTotalImported(int totalImported) { this.totalImported = totalImported; }
+        public void setTotalFailed(int totalFailed) { this.totalFailed = totalFailed; }
+
+        public static class ImportStats {
+            private int success;
+            private int failed;
+
+            public ImportStats(int success, int failed) {
+                this.success = success;
+                this.failed = failed;
+            }
+
+            public int getSuccess() { return success; }
+            public int getFailed() { return failed; }
+        }
+    }
+}

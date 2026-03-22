@@ -1,0 +1,47 @@
+# Build outputs
+target/
+build/
+dist/
+dist-ssr/
+
+# Dependencies
+node_modules/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+logs/
+*.log
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Local env (keep .env.example)
+.env
+.env.local
+.env.*.local
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+
+# Sensitive config (use env vars in production)
+**/application-local.yml
+**/application-local.properties
+
+# Uploads
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db
