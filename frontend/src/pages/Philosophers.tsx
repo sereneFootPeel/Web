@@ -4,7 +4,7 @@ import { philosophyApi, type PhilosopherNameItem, type PhilosopherData } from '.
 import { ContentCard } from '../components/ContentCard'
 
 export function Philosophers() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const philosopherId = searchParams.get('philosopherId')
   const [names, setNames] = useState<PhilosopherNameItem[]>([])
   const [selected, setSelected] = useState<PhilosopherData | null>(null)
@@ -23,6 +23,7 @@ export function Philosophers() {
       setNames((prev) => (off === 0 ? res.items : [...prev, ...res.items]))
       setHasMore(res.hasMore)
       setOffset(off + res.items.length)
+      return res
     } finally {
       setLoadingMore(false)
     }
@@ -63,6 +64,46 @@ export function Philosophers() {
     setMobileListOpen(false)
   }
 
+  // 导航到上一个/下一个哲学家（参考 Philosophy Website）
+  const navigatePhilosopher = useCallback(
+    async (direction: -1 | 1) => {
+      const currentId = selected?.id ?? (philosopherId ? parseInt(philosopherId, 10) : null)
+      if (!currentId || isNaN(currentId)) return
+
+      let ids = names.map((n) => n.id)
+      let currentIndex = ids.indexOf(currentId)
+      let nextOffset = offset
+
+      // 若当前哲学家不在已加载列表中，尝试加载更多直到找到
+      while (currentIndex === -1 && hasMore && !loadingMore) {
+        const res = await loadNames(nextOffset)
+        if (!res?.items?.length) break
+        ids = [...ids, ...res.items.map((n) => n.id)]
+        currentIndex = ids.indexOf(currentId)
+        nextOffset += res.items.length
+        if (!res.hasMore) break
+      }
+
+      if (currentIndex === -1 || ids.length === 0) return
+
+      let targetId: number | null = null
+      if (direction < 0) {
+        targetId = currentIndex <= 0 ? ids[ids.length - 1] ?? null : ids[currentIndex - 1] ?? null
+      } else {
+        if (currentIndex < ids.length - 1) {
+          targetId = ids[currentIndex + 1] ?? null
+        } else if (hasMore && !loadingMore) {
+          const res = await loadNames(nextOffset)
+          targetId = res?.items?.[0]?.id ?? ids[0] ?? null
+        } else {
+          targetId = ids[0] ?? null
+        }
+      }
+      if (targetId) setSearchParams({ philosopherId: String(targetId) })
+    },
+    [selected?.id, philosopherId, names, offset, hasMore, loadingMore, loadNames, setSearchParams],
+  )
+
   useEffect(() => {
     loadNames(0)
   }, [])
@@ -73,8 +114,10 @@ export function Philosophers() {
     if (id && !isNaN(id)) loadPhilosopher(id)
   }, [philosopherId, defaultId])
 
+  const showNavButtons = selected && names.length > 0
+
   return (
-    <div className="flex flex-col md:flex-row gap-6">
+    <div className="flex flex-col md:flex-row gap-6 relative">
       {/* 移动端：点击展开的目录 */}
       <div className="md:hidden w-full">
         <button
@@ -186,6 +229,32 @@ export function Philosophers() {
           <p>请选择一位哲学家</p>
         )}
       </div>
+
+      {/* 右下角固定按钮：上一个/下一个哲学家（参考 Philosophy Website） */}
+      {showNavButtons && (
+        <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 flex flex-col gap-3 sm:gap-4 z-40">
+          <button
+            type="button"
+            onClick={() => navigatePhilosopher(-1)}
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 touch-manipulation"
+            style={{ backgroundColor: 'var(--color-primary)', color: 'black' }}
+            title="上一位哲学家"
+            aria-label="上一位哲学家"
+          >
+            <i className="fa fa-chevron-up text-lg sm:text-xl" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => navigatePhilosopher(1)}
+            className="w-14 h-14 sm:w-16 sm:h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 touch-manipulation"
+            style={{ backgroundColor: 'var(--color-primary)', color: 'black' }}
+            title="下一位哲学家"
+            aria-label="下一位哲学家"
+          >
+            <i className="fa fa-chevron-down text-lg sm:text-xl" aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

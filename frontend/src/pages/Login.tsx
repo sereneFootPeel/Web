@@ -63,8 +63,8 @@ export function Login() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-2 rounded font-medium text-white disabled:opacity-50"
-          style={{ background: 'var(--color-primary)' }}
+          className="w-full py-2 rounded font-medium disabled:opacity-50"
+          style={{ background: 'var(--color-primary)', color: 'black' }}
         >
           {loading ? '登录中...' : '登录'}
         </button>
