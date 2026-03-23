@@ -12,7 +12,9 @@ export function Philosophers() {
   const [hasMore, setHasMore] = useState(false)
   const [offset, setOffset] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [mobileListOpen, setMobileListOpen] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  const mobileListRef = useRef<HTMLDivElement>(null)
 
   const loadNames = useCallback(async (off = 0) => {
     if (off > 0) setLoadingMore(true)
@@ -35,6 +37,15 @@ export function Philosophers() {
     }
   }, [hasMore, loadingMore, offset, loadNames])
 
+  const handleMobileListScroll = useCallback(() => {
+    const el = mobileListRef.current
+    if (!el || !hasMore || loadingMore) return
+    const { scrollTop, scrollHeight, clientHeight } = el
+    if (scrollTop + clientHeight >= scrollHeight - 50) {
+      loadNames(offset)
+    }
+  }, [hasMore, loadingMore, offset, loadNames])
+
   const loadPhilosopher = async (id: number) => {
     setLoading(true)
     try {
@@ -45,6 +56,11 @@ export function Philosophers() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const selectPhilosopher = (id: number) => {
+    loadPhilosopher(id)
+    setMobileListOpen(false)
   }
 
   useEffect(() => {
@@ -58,8 +74,58 @@ export function Philosophers() {
   }, [philosopherId, defaultId])
 
   return (
-    <div className="flex gap-6">
-      <aside className="w-48 flex-shrink-0 flex flex-col">
+    <div className="flex flex-col md:flex-row gap-6">
+      {/* 移动端：点击展开的目录 */}
+      <div className="md:hidden w-full">
+        <button
+          type="button"
+          onClick={() => setMobileListOpen(!mobileListOpen)}
+          className="w-full px-4 py-3 text-base border rounded-lg bg-white flex items-center justify-between gap-2 min-h-[44px] touch-manipulation transition-colors"
+          style={{
+            borderColor: 'var(--border-primary)',
+            color: selected ? 'var(--text-primary)' : 'var(--text-secondary)',
+          }}
+        >
+          <span className="truncate">
+            {selected ? selected.displayName : '选择哲学家'}
+          </span>
+          <i
+            className={`fa fa-chevron-${mobileListOpen ? 'up' : 'down'} text-sm flex-shrink-0`}
+            aria-hidden="true"
+          />
+        </button>
+        {mobileListOpen && (
+          <div
+            ref={mobileListRef}
+            onScroll={handleMobileListScroll}
+            className="mt-2 space-y-1 overflow-y-auto rounded-lg border p-2 max-h-[50vh]"
+            style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}
+          >
+            {names.map((n) => (
+              <button
+                key={n.id}
+                type="button"
+                onClick={() => selectPhilosopher(n.id)}
+                className={`block w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors touch-manipulation ${selected?.id === n.id ? 'font-bold' : ''}`}
+                style={{
+                  color: selected?.id === n.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  backgroundColor: selected?.id === n.id ? 'var(--color-primary-dark)' : 'transparent',
+                }}
+              >
+                {n.displayName}
+              </button>
+            ))}
+            {loadingMore && (
+              <p className="py-2 text-center text-sm" style={{ color: 'var(--text-tertiary)' }}>
+                加载中…
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* 桌面端：左侧哲学家列表 */}
+      <aside className="hidden md:flex w-48 flex-shrink-0 flex-col">
         <div
           ref={listRef}
           onScroll={handleScroll}
@@ -69,6 +135,7 @@ export function Philosophers() {
           {names.map((n) => (
             <button
               key={n.id}
+              type="button"
               onClick={() => loadPhilosopher(n.id)}
               className={`block w-full text-left px-2 py-1 rounded text-sm hover:bg-gray-100 ${selected?.id === n.id ? 'font-bold' : ''}`}
               style={{
@@ -80,6 +147,7 @@ export function Philosophers() {
           ))}
         </div>
       </aside>
+
       <div className="flex-1 min-w-0">
         {loading ? (
           <p>加载中...</p>

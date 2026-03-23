@@ -112,7 +112,6 @@ export function UserProfile() {
   if (error) return <div className="p-8" style={{ color: 'var(--text-secondary)' }}>{errorMessage}</div>
   if (!profile) return <div className="p-8" style={{ color: 'var(--text-secondary)' }}>{t('用户不存在', 'User not found')}</div>
 
-  const contents = profile.contents ?? []
   const likedContents = profile.likedContents ?? []
   const myComments = profile.myComments ?? []
 
@@ -256,27 +255,6 @@ export function UserProfile() {
         </div>
       )}
 
-      <div>
-        <h2 className="font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>
-          {isOwnProfile ? t('我发布的内容', 'My Contents') : t('内容', 'Contents')}
-        </h2>
-        {contents.length > 0 ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {contents.map((c) => (
-              <ContentCard
-                key={c.id}
-                item={c}
-                showSchool={true}
-                showLikeButton={true}
-                onLikeToggle={refreshLikedInProfile}
-                t={t}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('暂无内容', 'No contents yet')}</p>
-        )}
-      </div>
     </div>
   )
 }

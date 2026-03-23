@@ -26,9 +26,6 @@ export function Quotes() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-        名句推荐
-      </h1>
       {error && (
         <p className="text-red-500">{error}</p>
       )}
