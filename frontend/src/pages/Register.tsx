@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export function Register() {
   const [username, setUsername] = useState('')
@@ -12,10 +13,11 @@ export function Register() {
   const [codeCooldown, setCodeCooldown] = useState(0)
   const { register, sendCode } = useAuth()
   const navigate = useNavigate()
+  const { t } = useLanguage()
 
   const handleSendCode = async () => {
     if (!email.trim()) {
-      setError('请输入邮箱')
+      setError(t('请输入邮箱', 'Please enter your email'))
       return
     }
     setError('')
@@ -29,7 +31,7 @@ export function Register() {
         })
       }, 1000)
     } else {
-      setError(result.message || '发送失败')
+      setError(result.message || t('发送失败', 'Failed to send'))
     }
   }
 
@@ -42,14 +44,14 @@ export function Register() {
     if (result.success) {
       navigate('/', { replace: true })
     } else {
-      setError(result.message || '注册失败')
+      setError(result.message || t('注册失败', 'Registration failed'))
     }
   }
 
   return (
     <div className="max-w-md mx-auto py-12">
       <h1 className="text-2xl font-bold mb-6" style={{ color: 'var(--text-primary)' }}>
-        注册
+        {t('注册', 'Register')}
       </h1>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
@@ -57,7 +59,7 @@ export function Register() {
         )}
         <div>
           <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-            用户名
+            {t('用户名', 'Username')}
           </label>
           <input
             type="text"
@@ -70,7 +72,7 @@ export function Register() {
         </div>
         <div>
           <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-            邮箱
+            {t('邮箱', 'Email')}
           </label>
           <div className="flex gap-2">
             <input
@@ -88,13 +90,15 @@ export function Register() {
               className="px-4 py-2 rounded text-sm whitespace-nowrap disabled:opacity-50"
               style={{ background: 'var(--color-primary)', color: 'white' }}
             >
-              {codeCooldown > 0 ? `${codeCooldown}秒` : '获取验证码'}
+              {codeCooldown > 0
+                ? t(`${codeCooldown}秒`, `${codeCooldown}s`)
+                : t('获取验证码', 'Get code')}
             </button>
           </div>
         </div>
         <div>
           <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-            验证码
+            {t('验证码', 'Verification code')}
           </label>
           <input
             type="text"
@@ -107,7 +111,7 @@ export function Register() {
         </div>
         <div>
           <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-            密码（至少6位）
+            {t('密码（至少6位）', 'Password (at least 6 characters)')}
           </label>
           <input
             type="password"
@@ -125,11 +129,12 @@ export function Register() {
           className="w-full py-2 rounded font-medium text-white disabled:opacity-50"
           style={{ background: 'var(--color-primary)' }}
         >
-          {loading ? '注册中...' : '注册'}
+          {loading ? t('注册中...', 'Registering...') : t('注册', 'Register')}
         </button>
       </form>
       <p className="mt-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        已有账号？ <Link to="/login" className="underline">去登录</Link>
+        {t('已有账号？', 'Already have an account?')}{' '}
+        <Link to="/login" className="underline">{t('去登录', 'Go to login')}</Link>
       </p>
     </div>
   )

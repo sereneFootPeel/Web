@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export function Login() {
   const [username, setUsername] = useState('')
@@ -10,6 +11,7 @@ export function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useLanguage()
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/'
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -21,14 +23,14 @@ export function Login() {
     if (result.success) {
       navigate(from, { replace: true })
     } else {
-      setError(result.message || '登录失败')
+      setError(result.message || t('登录失败', 'Login failed'))
     }
   }
 
   return (
     <div className="max-w-md mx-auto py-12">
       <h1 className="text-2xl font-bold mb-6" style={{ color: 'var(--text-primary)' }}>
-        登录
+        {t('登录', 'Login')}
       </h1>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
@@ -36,7 +38,7 @@ export function Login() {
         )}
         <div>
           <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-            用户名
+            {t('用户名', 'Username')}
           </label>
           <input
             type="text"
@@ -49,7 +51,7 @@ export function Login() {
         </div>
         <div>
           <label className="block text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>
-            密码
+            {t('密码', 'Password')}
           </label>
           <input
             type="password"
@@ -66,11 +68,14 @@ export function Login() {
           className="w-full py-2 rounded font-medium disabled:opacity-50"
           style={{ background: 'var(--color-primary)', color: 'black' }}
         >
-          {loading ? '登录中...' : '登录'}
+          {loading ? t('登录中...', 'Logging in...') : t('登录', 'Login')}
         </button>
       </form>
       <p className="mt-4 text-sm" style={{ color: 'var(--text-secondary)' }}>
-        还没有账号？ <Link to="/register" className="underline">立即注册</Link>
+        {t('还没有账号？', "Don't have an account?")}{' '}
+        <Link to="/register" className="underline">
+          {t('立即注册', 'Register now')}
+        </Link>
       </p>
     </div>
   )
