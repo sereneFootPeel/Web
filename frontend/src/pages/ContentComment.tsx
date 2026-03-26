@@ -125,7 +125,7 @@ export function ContentComment() {
     if (likeLoading) return
     setLikeLoading(true)
     try {
-      const res = await fetch('/likes/toggle', {
+      const res = await fetch('/api/likes/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         credentials: 'include',
@@ -218,11 +218,11 @@ export function ContentComment() {
       </button>
 
       <article
-        className="rounded-lg border p-5 mb-8"
+        className="rounded-lg border p-5 mb-8 relative"
         style={{ borderColor: '#e5e7eb', background: '#ffffff' }}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1 min-w-0">
+        <div className="flex items-start">
+          <div className={`flex-1 min-w-0 w-full ${authenticated ? 'pr-14' : ''}`}>
             {content.school && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {content.school.parent?.id != null && (
@@ -273,24 +273,26 @@ export function ContentComment() {
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={handleLike}
-            disabled={likeLoading}
-            className="flex flex-col items-center gap-0.5 shrink-0 p-2 rounded-full transition-colors hover:bg-[#f3f4f6] disabled:opacity-50"
-            style={{ color: '#374151' }}
-            title={isLiked ? t('取消点赞', 'Unlike') : t('点赞', 'Like')}
-          >
-            {likeLoading ? (
-              <i className="fa-solid fa-spinner fa-spin text-base" style={{ color: '#6b7280' }} />
-            ) : (
-              <i
-                className={isLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart'}
-                style={{ color: isLiked ? '#111827' : '#6b7280' }}
-              />
-            )}
-            <span className="text-xs">{likeCount}</span>
-          </button>
+          {authenticated && (
+            <button
+              type="button"
+              onClick={handleLike}
+              disabled={likeLoading}
+              className="absolute top-5 right-5 flex flex-col items-center gap-0.5 p-2 rounded-full transition-colors hover:bg-[#f3f4f6] disabled:opacity-50 z-10"
+              style={{ color: '#374151' }}
+              title={isLiked ? t('取消点赞', 'Unlike') : t('点赞', 'Like')}
+            >
+              {likeLoading ? (
+                <i className="fa-solid fa-spinner fa-spin text-base" style={{ color: '#6b7280' }} />
+              ) : (
+                <i
+                  className={isLiked ? 'fa-solid fa-heart' : 'fa-regular fa-heart'}
+                  style={{ color: isLiked ? '#111827' : '#6b7280' }}
+                />
+              )}
+              <span className="text-xs">{likeCount}</span>
+            </button>
+          )}
         </div>
       </article>
 

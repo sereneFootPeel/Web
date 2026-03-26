@@ -18,8 +18,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -288,21 +290,45 @@ public class PhilosopherService {
             return new ArrayList<>();
         }
         String trimmed = query.trim();
-        String normalized = SearchNormalizer.normalize(trimmed);
-        if (normalized.isEmpty()) {
+        List<String> rawWords = SearchNormalizer.rawWords(trimmed);
+        if (rawWords.isEmpty()) {
             return new ArrayList<>();
         }
-        boolean strictAsciiToken = SearchNormalizer.isAsciiAlnumToken(trimmed);
-        boolean enableSubsequence = !strictAsciiToken && SearchNormalizer.shouldEnableSubsequence(trimmed, normalized);
-        String subsequencePattern = SearchNormalizer.buildSubsequenceLikePattern(normalized);
-        List<Philosopher> list = philosopherRepository.searchByNameOrNameEn(trimmed, normalized, subsequencePattern, enableSubsequence);
-        if (strictAsciiToken) {
-            list = list.stream().filter(p ->
-                    SearchNormalizer.containsIgnoreCase(p.getName(), trimmed)
-                            || SearchNormalizer.containsIgnoreCase(p.getNameEn(), trimmed))
-                    .toList();
+
+        // 空格分词默认 OR 语义：任一词命中即返回
+        Map<Long, Philosopher> merged = new LinkedHashMap<>();
+        for (String word : rawWords) {
+            List<Philosopher> simpleMatches = philosopherRepository.searchByNameOrNameEnSimple(word);
+            for (Philosopher p : simpleMatches) {
+                if (p.getId() != null) {
+                    merged.putIfAbsent(p.getId(), p);
+                }
+            }
         }
-        return list;
+
+        // 单词查询时，若轻量命中不足，再走重查询补充“去标点/子序列”能力
+        if (rawWords.size() == 1) {
+            String normalized = SearchNormalizer.normalize(trimmed);
+            if (!normalized.isEmpty()) {
+                boolean strictAsciiToken = SearchNormalizer.isAsciiAlnumToken(trimmed);
+                boolean enableSubsequence = !strictAsciiToken && SearchNormalizer.shouldEnableSubsequence(trimmed, normalized);
+                String subsequencePattern = SearchNormalizer.buildSubsequenceLikePattern(normalized);
+                List<Philosopher> heavyMatches = philosopherRepository.searchByNameOrNameEn(trimmed, normalized, subsequencePattern, enableSubsequence);
+                if (strictAsciiToken) {
+                    heavyMatches = heavyMatches.stream().filter(p ->
+                            SearchNormalizer.containsIgnoreCase(p.getName(), trimmed)
+                                    || SearchNormalizer.containsIgnoreCase(p.getNameEn(), trimmed))
+                            .toList();
+                }
+                for (Philosopher p : heavyMatches) {
+                    if (p.getId() != null) {
+                        merged.putIfAbsent(p.getId(), p);
+                    }
+                }
+            }
+        }
+
+        return new ArrayList<>(merged.values());
     }
 
     /**

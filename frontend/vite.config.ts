@@ -9,12 +9,7 @@ export default defineConfig({
       '/api': 'http://localhost:8080',
       '/likes': 'http://localhost:8080',
       '/language': 'http://localhost:8080',
-      // 测试页面（Thymeleaf）及静态资源代理到后端
-      '/mmpi': 'http://localhost:8080',
-      '/mbti': 'http://localhost:8080',
-      '/enneagram': 'http://localhost:8080',
-      '/bigfive': 'http://localhost:8080',
-      '/values8': 'http://localhost:8080',
+      // 前后端分离后，测试页面在前端实现，仅保留数据与资源代理
       '/css': 'http://localhost:8080',
       '/data': 'http://localhost:8080',
     },

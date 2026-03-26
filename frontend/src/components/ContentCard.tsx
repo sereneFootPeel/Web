@@ -74,7 +74,7 @@ export function ContentCard({
     if (loading) return
     setLoading(true)
     try {
-      const res = await fetch('/likes/toggle', {
+      const res = await fetch('/api/likes/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         credentials: 'include',

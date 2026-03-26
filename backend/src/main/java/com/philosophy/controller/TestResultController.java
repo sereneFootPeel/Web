@@ -4,15 +4,13 @@ import com.philosophy.model.TestResult;
 import com.philosophy.model.User;
 import com.philosophy.service.TestResultService;
 import com.philosophy.service.UserService;
-import com.philosophy.util.LanguageUtil;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.philosophy.util.TestResultScoreFormatter;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -24,14 +22,23 @@ public class TestResultController {
 
     private final TestResultService testResultService;
     private final UserService userService;
-    private final LanguageUtil languageUtil;
     private final ObjectMapper objectMapper;
 
-    public TestResultController(TestResultService testResultService, UserService userService, LanguageUtil languageUtil, ObjectMapper objectMapper) {
+    @Value("${app.frontend.url:}")
+    private String frontendUrl;
+
+    public TestResultController(TestResultService testResultService, UserService userService, ObjectMapper objectMapper) {
         this.testResultService = testResultService;
         this.userService = userService;
-        this.languageUtil = languageUtil;
         this.objectMapper = objectMapper;
+    }
+
+    private String frontendBase() {
+        return (frontendUrl != null && !frontendUrl.isBlank()) ? frontendUrl.trim() : "http://localhost:5173";
+    }
+
+    private String redirectTo(String path) {
+        return "redirect:" + frontendBase() + path;
     }
 
     /** 保存测试结果（需登录） */
@@ -123,24 +130,38 @@ public class TestResultController {
 
     /** 查看单条测试记录详情 */
     @GetMapping("/user/test-results/{id}")
-    public String viewResult(@PathVariable Long id, Model model, Authentication authentication, HttpServletRequest request) {
+    public String viewResult(@PathVariable Long id) {
+        return redirectTo("/user/test-results/" + id);
+    }
+
+    /** 获取单条测试记录详情（供前端详情页） */
+    @GetMapping("/api/test-results/{id}")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> getDetail(@PathVariable Long id, Authentication authentication) {
+        Map<String, Object> body = new HashMap<>();
         User viewer = null;
         if (authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken)) {
             viewer = userService.findByUsername(authentication.getName());
         }
+
         Optional<TestResult> opt = testResultService.findByIdForView(id, viewer);
         if (opt.isEmpty()) {
-            model.addAttribute("errorMessage", "记录不存在或无权查看");
-            return "error";
+            body.put("success", false);
+            body.put("message", "记录不存在或无权查看");
+            return ResponseEntity.ok(body);
         }
-        TestResult r = opt.get();
-        String language = languageUtil.getLanguage(request);
-        boolean isOwner = viewer != null && viewer.getId().equals(r.getUser().getId());
 
-        model.addAttribute("record", r);
-        model.addAttribute("isOwner", isOwner);
-        model.addAttribute("language", language);
-        return "user/test-result-detail";
+        TestResult record = opt.get();
+        body.put("success", true);
+        body.put("id", record.getId());
+        body.put("testType", record.getTestType());
+        body.put("resultSummary", record.getResultSummary());
+        body.put("createdAt", record.getCreatedAt() != null ? record.getCreatedAt().toString() : null);
+        body.put("isPublic", record.isPublic());
+        body.put("userId", record.getUser() != null ? record.getUser().getId() : null);
+        body.put("isOwner", viewer != null && record.getUser() != null && viewer.getId().equals(record.getUser().getId()));
+        body.put("scoreRows", TestResultScoreFormatter.parseScoreRows(record.getTestType(), record.getResultJson(), objectMapper));
+        return ResponseEntity.ok(body);
     }
 
     /** 主页卡片的分数预览（避免在 HTML 中内嵌完整 resultJson） */
@@ -169,52 +190,8 @@ public class TestResultController {
         }
 
         try {
-            JsonNode root = objectMapper.readTree(resultJson);
-            java.util.List<String> lines = new java.util.ArrayList<>();
             String testType = record.getTestType() == null ? "" : record.getTestType();
-
-            if ("enneagram".equals(testType) && root.has("scores") && root.get("scores").isObject()) {
-                JsonNode scores = root.get("scores");
-                JsonNode typeNames = root.has("typeNames") ? root.get("typeNames") : null;
-                for (int t = 1; t <= 9; t++) {
-                    String key = String.valueOf(t);
-                    String name = (typeNames != null && typeNames.has(key)) ? typeNames.get(key).asText("") : "";
-                    int score = scores.has(key) ? scores.get(key).asInt(0) : 0;
-                    lines.add(name.isEmpty() ? ("型" + t + ": " + score) : ("型" + t + " " + name + ": " + score));
-                }
-            } else if ("mbti".equals(testType) && root.has("scores") && root.get("scores").isObject()) {
-                JsonNode scores = root.get("scores");
-                String[][] dims = {{"E", "I"}, {"S", "N"}, {"T", "F"}, {"J", "P"}};
-                for (String[] d : dims) {
-                    int a = scores.has(d[0]) ? scores.get(d[0]).asInt(0) : 0;
-                    int b = scores.has(d[1]) ? scores.get(d[1]).asInt(0) : 0;
-                    lines.add(d[0] + "-" + d[1] + ": " + d[0] + " " + a + " / " + d[1] + " " + b);
-                }
-            } else if ("values8".equals(testType) && root.has("scores") && root.get("scores").isObject()) {
-                JsonNode scores = root.get("scores");
-                JsonNode labels = root.has("labels") ? root.get("labels") : null;
-                String[] axes = {"econ", "dipl", "govt", "scty"};
-                for (String axis : axes) {
-                    double raw = scores.has(axis) ? scores.get(axis).asDouble(0) : 0;
-                    double left = ("econ".equals(axis) || "govt".equals(axis)) ? raw : round1(100 - raw);
-                    double right = round1(100 - left);
-                    String leftName = axis;
-                    String rightName = "";
-                    if (labels != null && labels.has(axis) && labels.get(axis).isArray() && labels.get(axis).size() >= 2) {
-                        leftName = labels.get(axis).get(0).asText(axis);
-                        rightName = labels.get(axis).get(1).asText("");
-                    }
-                    lines.add(leftName + " " + left + "% / " + right + "% " + rightName);
-                }
-            } else if (root.has("scores") && root.get("scores").isObject()) {
-                JsonNode scores = root.get("scores");
-                java.util.Iterator<String> keys = scores.fieldNames();
-                while (keys.hasNext()) {
-                    String k = keys.next();
-                    lines.add(k + ": " + scores.get(k).asText(""));
-                }
-            }
-
+            java.util.List<String> lines = TestResultScoreFormatter.toDisplayLines(testType, resultJson, objectMapper);
             body.put("success", true);
             body.put("lines", lines);
             return ResponseEntity.ok(body);
@@ -223,9 +200,5 @@ public class TestResultController {
             body.put("message", "结果解析失败");
             return ResponseEntity.ok(body);
         }
-    }
-
-    private double round1(double value) {
-        return Math.round(value * 10.0) / 10.0;
     }
 }

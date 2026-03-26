@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.Map;
@@ -244,21 +245,45 @@ public class SchoolService {
             return new ArrayList<>();
         }
         String trimmed = query.trim();
-        String normalized = SearchNormalizer.normalize(trimmed);
-        if (normalized.isEmpty()) {
+        List<String> rawWords = SearchNormalizer.rawWords(trimmed);
+        if (rawWords.isEmpty()) {
             return new ArrayList<>();
         }
-        boolean strictAsciiToken = SearchNormalizer.isAsciiAlnumToken(trimmed);
-        boolean enableSubsequence = !strictAsciiToken && SearchNormalizer.shouldEnableSubsequence(trimmed, normalized);
-        String subsequencePattern = SearchNormalizer.buildSubsequenceLikePattern(normalized);
-        List<School> list = schoolRepository.searchByNameOrNameEnNormalized(trimmed, normalized, subsequencePattern, enableSubsequence);
-        if (strictAsciiToken) {
-            list = list.stream().filter(s ->
-                    SearchNormalizer.containsIgnoreCase(s.getName(), trimmed)
-                            || SearchNormalizer.containsIgnoreCase(s.getNameEn(), trimmed))
-                    .toList();
+
+        // 空格分词默认 OR：逐词查询并去重合并
+        Map<Long, School> merged = new LinkedHashMap<>();
+        for (String word : rawWords) {
+            List<School> simpleMatches = schoolRepository.searchByNameOrNameEn(word);
+            for (School s : simpleMatches) {
+                if (s.getId() != null) {
+                    merged.putIfAbsent(s.getId(), s);
+                }
+            }
         }
-        return list;
+
+        // 单词时再补充重查询，兼容去标点/子序列能力
+        if (rawWords.size() == 1) {
+            String normalized = SearchNormalizer.normalize(trimmed);
+            if (!normalized.isEmpty()) {
+                boolean strictAsciiToken = SearchNormalizer.isAsciiAlnumToken(trimmed);
+                boolean enableSubsequence = !strictAsciiToken && SearchNormalizer.shouldEnableSubsequence(trimmed, normalized);
+                String subsequencePattern = SearchNormalizer.buildSubsequenceLikePattern(normalized);
+                List<School> heavyMatches = schoolRepository.searchByNameOrNameEnNormalized(trimmed, normalized, subsequencePattern, enableSubsequence);
+                if (strictAsciiToken) {
+                    heavyMatches = heavyMatches.stream().filter(s ->
+                            SearchNormalizer.containsIgnoreCase(s.getName(), trimmed)
+                                    || SearchNormalizer.containsIgnoreCase(s.getNameEn(), trimmed))
+                            .toList();
+                }
+                for (School s : heavyMatches) {
+                    if (s.getId() != null) {
+                        merged.putIfAbsent(s.getId(), s);
+                    }
+                }
+            }
+        }
+
+        return new ArrayList<>(merged.values());
     }
     
     // 获取指定流派及其所有子孙流派的ID集合

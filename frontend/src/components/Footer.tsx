@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export function Footer() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const navigate = useNavigate()
+  const { t } = useLanguage()
 
   const handleSearch = () => {
     if (query.trim()) {
@@ -30,8 +32,8 @@ export function Footer() {
                 onClick={() => setSearchOpen(true)}
                 className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-white/10 hover:bg-white/20 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 touch-manipulation min-w-[44px] min-h-[44px]"
                 style={{ color: 'var(--text-primary)' }}
-                title="搜索"
-                aria-label="搜索"
+                title={t('搜索', 'Search')}
+                aria-label={t('搜索', 'Search')}
               >
                 <i className="fa fa-search text-xl sm:text-2xl" />
               </button>
@@ -61,11 +63,11 @@ export function Footer() {
                   className="text-lg font-semibold"
                   style={{ color: 'var(--text-primary)' }}
                 >
-                  搜索
+                  {t('搜索', 'Search')}
                 </h3>
                 <button
                   type="button"
-                  aria-label="关闭搜索"
+                  aria-label={t('关闭搜索', 'Close search')}
                   className="p-2 transition-colors"
                   style={{ color: 'var(--text-tertiary)' }}
                   onClick={() => setSearchOpen(false)}
@@ -80,7 +82,7 @@ export function Footer() {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                  placeholder="输入关键词搜索..."
+                  placeholder={t('输入关键词搜索...', 'Search by keywords...')}
                   className="w-full px-4 py-3 pr-14 border-2 rounded-lg focus:ring-2 focus:ring-primary focus:border-primary outline-none text-base transition-all duration-200"
                   style={{
                     borderColor: 'var(--border-primary)',

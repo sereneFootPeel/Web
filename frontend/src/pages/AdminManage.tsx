@@ -434,8 +434,8 @@ export function AdminManage() {
       )}
 
       {!loading && section === 'users' && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <form className="space-y-3" onSubmit={submitUser}>
+        <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+          <form className="space-y-3 sticky top-4" onSubmit={submitUser}>
             <h2 className="font-semibold">{userForm.id ? '编辑用户' : '新增用户'}</h2>
             <input className="w-full border rounded p-2" placeholder="用户名" value={userForm.username} onChange={(e) => setUserForm((v) => ({ ...v, username: e.target.value }))} required />
             <input className="w-full border rounded p-2" placeholder="邮箱" value={userForm.email} onChange={(e) => setUserForm((v) => ({ ...v, email: e.target.value }))} required />
@@ -472,8 +472,8 @@ export function AdminManage() {
       )}
 
       {!loading && section === 'philosophers' && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <form className="space-y-3" onSubmit={submitPhilosopher}>
+        <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+          <form className="space-y-3 sticky top-4" onSubmit={submitPhilosopher}>
             <h2 className="font-semibold">{philosopherForm.id ? '编辑哲学家' : '新增哲学家'}</h2>
             <input className="w-full border rounded p-2" placeholder="姓名" value={philosopherForm.name} onChange={(e) => setPhilosopherForm((v) => ({ ...v, name: e.target.value }))} required />
             <input className="w-full border rounded p-2" placeholder="英文名" value={philosopherForm.nameEn} onChange={(e) => setPhilosopherForm((v) => ({ ...v, nameEn: e.target.value }))} />
@@ -513,8 +513,8 @@ export function AdminManage() {
       )}
 
       {!loading && section === 'schools' && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <form className="space-y-3" onSubmit={submitSchool}>
+        <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+          <form className="space-y-3 sticky top-4" onSubmit={submitSchool}>
             <h2 className="font-semibold">{schoolForm.id ? '编辑流派' : '新增流派'}</h2>
             <input className="w-full border rounded p-2" placeholder="名称" value={schoolForm.name} onChange={(e) => setSchoolForm((v) => ({ ...v, name: e.target.value }))} required />
             <input className="w-full border rounded p-2" placeholder="英文名" value={schoolForm.nameEn} onChange={(e) => setSchoolForm((v) => ({ ...v, nameEn: e.target.value }))} />
@@ -556,8 +556,8 @@ export function AdminManage() {
       )}
 
       {!loading && section === 'contents' && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <form className="space-y-3" onSubmit={submitContent}>
+        <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+          <form className="space-y-3 sticky top-4" onSubmit={submitContent}>
             <h2 className="font-semibold">{contentForm.id ? '编辑内容' : '新增内容'}</h2>
             <select className="w-full border rounded p-2" value={contentForm.philosopherId} onChange={(e) => setContentForm((v) => ({ ...v, philosopherId: e.target.value }))}>
               <option value="">无哲学家</option>

@@ -55,4 +55,9 @@ public interface PhilosopherRepository extends JpaRepository<Philosopher, Long> 
            "(:enableSubsequence = true AND LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p.name, '·', ''), '・', ''), '‧', ''), '.', ''), '．', ''), ' ', ''), '　', '')) LIKE :subsequencePattern ESCAPE '\\') OR " +
            "(:enableSubsequence = true AND LOWER(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(p.nameEn, '·', ''), '・', ''), '‧', ''), '.', ''), '．', ''), ' ', ''), '　', '')) LIKE :subsequencePattern ESCAPE '\\')")
     List<Philosopher> searchByNameOrNameEn(@Param("query") String query, @Param("normalizedQuery") String normalizedQuery, @Param("subsequencePattern") String subsequencePattern, @Param("enableSubsequence") boolean enableSubsequence);
+
+    @Query("SELECT p FROM Philosopher p WHERE " +
+           "LOWER(p.name) LIKE LOWER(CONCAT('%', :query, '%')) OR " +
+           "LOWER(p.nameEn) LIKE LOWER(CONCAT('%', :query, '%'))")
+    List<Philosopher> searchByNameOrNameEnSimple(@Param("query") String query);
 }

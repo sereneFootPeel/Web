@@ -126,7 +126,7 @@ export function Search() {
         })
       })
       .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : '搜索失败')
+        if (!cancelled) setError(e instanceof Error ? e.message : t('搜索失败', 'Search failed'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -152,7 +152,7 @@ export function Search() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="输入关键词..."
+          placeholder={t('输入关键词...', 'Enter keywords...')}
           className="flex-1 px-4 py-2 rounded-lg border outline-none focus:ring-2 focus:ring-black focus:ring-opacity-30"
           style={{
             borderColor: 'var(--border-primary)',
@@ -166,7 +166,7 @@ export function Search() {
           className="px-6 py-2 rounded-lg font-medium disabled:opacity-50"
           style={{ background: 'var(--color-primary)', color: 'black' }}
         >
-          {loading ? '搜索中...' : '搜索'}
+          {loading ? t('搜索中...', 'Searching...') : t('搜索', 'Search')}
         </button>
       </form>
       {error && <p className="text-red-500 mb-4">{error}</p>}

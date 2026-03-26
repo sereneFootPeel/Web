@@ -1,8 +1,11 @@
 package com.philosophy.controller;
 
+import com.philosophy.model.Content;
+import com.philosophy.model.Philosopher;
 import com.philosophy.model.School;
 import com.philosophy.service.SchoolService;
 import com.philosophy.service.TranslationService;
+import com.philosophy.util.DateUtils;
 import com.philosophy.util.PinyinStringComparator;
 import com.philosophy.util.LanguageUtil;
 import jakarta.servlet.http.HttpServletRequest;
@@ -161,6 +164,92 @@ public class SchoolApiController {
         dto.setDescription(displayDesc);
         dto.setParentId(school.getParent() != null ? school.getParent().getId() : null);
         return ResponseEntity.ok(dto);
+    }
+
+    @GetMapping("/api/schools/contents/more")
+    @Transactional(readOnly = true)
+    public ResponseEntity<Map<String, Object>> getMoreSchoolContents(
+            @RequestParam("id") Long schoolId,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size,
+            HttpServletRequest request) {
+
+        Map<String, Object> response = new HashMap<>();
+
+        try {
+            School school = schoolService.getSchoolById(schoolId);
+            if (school == null) {
+                response.put("success", false);
+                response.put("message", "School not found");
+                return ResponseEntity.notFound().build();
+            }
+
+            String language = languageUtil.getLanguage(request);
+            Map<String, Object> result = schoolService.getContentsBySchoolIdWithPriorityPaged(schoolId, page, size);
+
+            @SuppressWarnings("unchecked")
+            List<Content> contents = (List<Content>) result.get("contents");
+
+            List<Map<String, Object>> contentList = new ArrayList<>();
+            for (Content content : contents) {
+                try {
+                    Map<String, Object> contentData = new HashMap<>();
+                    contentData.put("id", content.getId());
+                    contentData.put("title", null);
+                    contentData.put("content", translationService.getContentDisplayText(content, "zh"));
+                    contentData.put("contentEn", translationService.getContentDisplayText(content, "en"));
+                    contentData.put("likeCount", content.getLikeCount() != null ? content.getLikeCount() : 0);
+
+                    if (content.getSchool() != null) {
+                        Map<String, Object> schoolData = new HashMap<>();
+                        School s = content.getSchool();
+                        schoolData.put("id", s.getId());
+                        schoolData.put("name", s.getName());
+                        schoolData.put("nameEn", s.getNameEn());
+                        schoolData.put("displayName", translationService.getSchoolDisplayName(s, language));
+                        if (s.getParent() != null) {
+                            School parent = s.getParent();
+                            Map<String, Object> parentData = new HashMap<>();
+                            parentData.put("id", parent.getId());
+                            parentData.put("displayName", translationService.getSchoolDisplayName(parent, language));
+                            schoolData.put("parent", parentData);
+                        } else {
+                            schoolData.put("parent", null);
+                        }
+                        contentData.put("school", schoolData);
+                    } else {
+                        contentData.put("school", null);
+                    }
+
+                    if (content.getPhilosopher() != null) {
+                        Philosopher p = content.getPhilosopher();
+                        Map<String, Object> philosopherData = new HashMap<>();
+                        philosopherData.put("id", p.getId());
+                        philosopherData.put("displayName", translationService.getPhilosopherDisplayName(p, language));
+                        philosopherData.put("name", p.getName());
+                        philosopherData.put("nameEn", p.getNameEn());
+                        philosopherData.put("dateRange", DateUtils.formatBirthYearToDateRange(p.getBirthYear(), p.getDeathYear()));
+                        contentData.put("philosopher", philosopherData);
+                    } else {
+                        contentData.put("philosopher", null);
+                    }
+
+                    contentList.add(contentData);
+                } catch (Exception ignored) {
+                }
+            }
+
+            response.put("success", true);
+            response.put("contents", contentList);
+            response.put("hasMore", result.get("hasMore"));
+            response.put("totalElements", result.get("totalElements"));
+            response.put("currentPage", page);
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            response.put("success", false);
+            response.put("message", "Error loading more contents: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
     }
 
     public static class SchoolNodeDTO {

@@ -1,7 +1,7 @@
 package com.philosophy.controller;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.RequestMapping;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
@@ -12,8 +12,15 @@ public class ErrorController implements org.springframework.boot.web.servlet.err
 
     private static final Logger logger = LoggerFactory.getLogger(ErrorController.class);
 
+    @Value("${app.frontend.url:}")
+    private String frontendUrl;
+
+    private String frontendBase() {
+        return (frontendUrl != null && !frontendUrl.isBlank()) ? frontendUrl.trim() : "http://localhost:5173";
+    }
+
     @RequestMapping("/error")
-    public String handleError(HttpServletRequest request, Model model) {
+    public String handleError(HttpServletRequest request) {
         Object status = request.getAttribute("jakarta.servlet.error.status_code");
         Object message = request.getAttribute("jakarta.servlet.error.message");
         Object exception = request.getAttribute("jakarta.servlet.error.exception");
@@ -34,10 +41,7 @@ public class ErrorController implements org.springframework.boot.web.servlet.err
             errorMessage = throwable.getMessage() != null ? throwable.getMessage() : errorMessage;
             logger.error("Error occurred: Status={}, Message={}", statusCode, errorMessage, throwable);
         }
-        
-        model.addAttribute("statusCode", statusCode);
-        model.addAttribute("errorMessage", errorMessage);
-        
-        return "error";
+
+        return "redirect:" + frontendBase() + "/?error=" + statusCode;
     }
 }

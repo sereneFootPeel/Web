@@ -111,27 +111,15 @@ export function Header() {
                 <span>{t(labelZh, labelEn)}</span>
               </Link>
             ))}
-            {user ? (
-              <>
-                <Link
-                  to="/user/profile"
-                  className="px-3 py-3 rounded-md text-sm font-medium"
-                  style={{ color: 'var(--text-secondary)' }}
-                  onClick={() => setMobileOpen(false)}
-                >
-                  <i className="fa fa-user mr-2" />
-                  <span>{t('用户主页', 'Profile')}</span>
-                </Link>
-              </>
-            ) : (
+            {user && (
               <Link
-                to="/login"
+                to="/user/profile"
                 className="px-3 py-3 rounded-md text-sm font-medium"
                 style={{ color: 'var(--text-secondary)' }}
                 onClick={() => setMobileOpen(false)}
               >
-                <i className="fa fa-sign-in mr-2" />
-                <span>{t('登录', 'Login')}</span>
+                <i className="fa fa-user mr-2" />
+                <span>{t('用户主页', 'Profile')}</span>
               </Link>
             )}
           </div>

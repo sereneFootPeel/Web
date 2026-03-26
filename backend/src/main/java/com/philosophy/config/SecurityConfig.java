@@ -50,7 +50,7 @@ public class SecurityConfig {
             .cors(cors -> {})
             // 禁用CSRF保护以便于测试（API + SPA）
             .csrf(csrf -> csrf
-                .ignoringRequestMatchers("/api/**", "/register/send-code", "/likes/toggle", "/admin/data-import/upload", "/user/profile/*/theme")
+                .ignoringRequestMatchers("/api/**", "/admin/data-import/upload")
             )
             // 添加请求日志记录过滤器
             .addFilterBefore((request, response, chain) -> {
@@ -59,16 +59,9 @@ public class SecurityConfig {
                 String method = httpRequest.getMethod();
                 logger.info("Incoming request: {} {}", method, uri);
                 
-                // 专门为评论路由添加详细日志
-                if (uri.startsWith("/comments/content/")) {
-                    logger.info("Processing comment route: {}, Method: {}", uri, method);
-                }
-                
                 chain.doFilter(request, response);
             }, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(authorize -> authorize
-                // 评论路由GET请求允许匿名访问
-                .requestMatchers(HttpMethod.GET, "/comments/**").permitAll()
                 // 公开的随机名句API
                 .requestMatchers(HttpMethod.GET, "/api/quotes/random").permitAll()
                 // 健康检查
@@ -78,45 +71,27 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/me").permitAll()
                 // 允许所有用户访问的API（SPA 前端调用）
                 .requestMatchers("/api/schools/**", "/api/philosophers/**", "/api/search/**", "/api/contents/**").permitAll()
+                // 点赞 API：公开读取，写操作需认证
+                .requestMatchers(HttpMethod.GET, "/api/likes/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/likes/toggle").authenticated()
                 // 评论API：GET 公开，POST 需认证
                 .requestMatchers(HttpMethod.GET, "/api/comments/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/comments/content/*").authenticated()
                 .requestMatchers(HttpMethod.DELETE, "/api/comments/*").authenticated()
-                // 允许所有用户访问的页面（后端不再渲染，保留用于兼容）
-                .requestMatchers("/", "/home", "/philosophers", "/schools", "/schools/filter/**", "/api/schools/children", "/api/schools/detail", "/api/philosophers/**", "/partials/schools/contents", "/search/**", "/api/search/**", "/register", "/css/**", "/js/**", "/images/**", "/uploads/**", "/data/**", "/test/**", "/quotes", "/error", "/language/**", "/user/profile/**", "/user/test-results/**", "/contents", "/mmpi", "/MMPI", "/Mmpi", "/mbti", "/MBTI", "/Mbti", "/enneagram", "/Enneagram", "/bigfive", "/big-five", "/BigFive", "/Bigfive", "/tests", "/test", "/values8", "/values-8", "/8values", "/eightvalues").permitAll()
-                // 允许发送注册验证码
-                .requestMatchers(HttpMethod.POST, "/register/send-code").permitAll()
+                // 静态资源
+                .requestMatchers("/css/**", "/js/**", "/images/**", "/uploads/**", "/data/**", "/error", "/language/**", "/@vite/**", "/node_modules/**").permitAll()
                 // 允许访问Vite相关资源
-                .requestMatchers("/@vite/**", "/node_modules/**").permitAll()
+                // 用户相关API需要认证
                 // 用户相关API需要认证
                 .requestMatchers("/api/user/**").authenticated()
                 // 管理后台API需要ADMIN
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                // 评论提交需要认证
-                .requestMatchers(HttpMethod.POST, "/comments/content/*").authenticated()
-                // 评论删除需要认证
-                .requestMatchers("/comments/delete/**").authenticated()
-                // 评论隐私设置需要认证
-                .requestMatchers(HttpMethod.POST, "/comments/privacy/**").authenticated()
-                // 评论状态设置需要认证
-                .requestMatchers(HttpMethod.POST, "/comments/status/**").authenticated()
-                // 点赞相关端点需要认证
-                .requestMatchers("/likes/**").authenticated()
                 // 测试结果保存/可见性/删除需认证
                 .requestMatchers("/api/test-results", "/api/test-results/**").authenticated()
                 // 管理员页面需要ADMIN角色
                 .requestMatchers("/admin/**").hasRole("ADMIN")
-                // 登录页面允许所有人访问
-                .requestMatchers("/login").permitAll()
                 // 其他所有请求都需要认证
                 .anyRequest().authenticated()
-            )
-            .formLogin(form -> form
-                .loginPage("/login")
-                .loginProcessingUrl("/login")
-                .successHandler(customAuthenticationSuccessHandler())
-                .failureHandler(customAuthenticationFailureHandler)
-                .permitAll()
             )
             .logout(logout -> logout
                 .logoutUrl("/logout")

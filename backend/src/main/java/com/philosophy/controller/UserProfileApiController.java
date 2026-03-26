@@ -6,14 +6,18 @@ import com.philosophy.model.Content;
 import com.philosophy.model.Like;
 import com.philosophy.model.Philosopher;
 import com.philosophy.model.School;
+import com.philosophy.model.TestResult;
 import com.philosophy.util.DateUtils;
+import com.philosophy.util.TestResultScoreFormatter;
 import com.philosophy.service.UserService;
 import com.philosophy.service.CommentService;
 import com.philosophy.service.LikeService;
 import com.philosophy.service.ContentService;
 import com.philosophy.service.UserContentEditService;
 import com.philosophy.service.TranslationService;
+import com.philosophy.service.TestResultService;
 import com.philosophy.util.LanguageUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -28,6 +32,7 @@ import java.util.*;
 @RequestMapping("/api/user")
 public class UserProfileApiController {
     private static final Logger logger = LoggerFactory.getLogger(UserProfileApiController.class);
+    private static final int MAX_PROFILE_TEST_RESULTS = 30;
 
     private final UserService userService;
     private final CommentService commentService;
@@ -36,11 +41,14 @@ public class UserProfileApiController {
     private final UserContentEditService userContentEditService;
     private final TranslationService translationService;
     private final LanguageUtil languageUtil;
+    private final TestResultService testResultService;
+    private final ObjectMapper objectMapper;
 
     public UserProfileApiController(UserService userService, CommentService commentService,
                                    LikeService likeService, ContentService contentService,
                                    UserContentEditService userContentEditService,
-                                   TranslationService translationService, LanguageUtil languageUtil) {
+                                   TranslationService translationService, LanguageUtil languageUtil,
+                                   TestResultService testResultService, ObjectMapper objectMapper) {
         this.userService = userService;
         this.commentService = commentService;
         this.likeService = likeService;
@@ -48,6 +56,8 @@ public class UserProfileApiController {
         this.userContentEditService = userContentEditService;
         this.translationService = translationService;
         this.languageUtil = languageUtil;
+        this.testResultService = testResultService;
+        this.objectMapper = objectMapper;
     }
 
     @GetMapping("/me")
@@ -154,7 +164,37 @@ public class UserProfileApiController {
             res.put("contentCount", 0);
         }
 
+        try {
+            List<TestResult> testResults = limitProfileTestResults(
+                    testResultService.findVisibleForProfile(user.getId(), currentUser)
+            );
+            res.put("testResults", testResults.stream().map(this::toTestResultSummary).toList());
+        } catch (Exception e) {
+            logger.warn("Failed to load test results for user {}", user.getId(), e);
+            res.put("testResults", List.of());
+        }
+
         return res;
+    }
+
+    private List<TestResult> limitProfileTestResults(List<TestResult> testResults) {
+        if (testResults == null || testResults.size() <= MAX_PROFILE_TEST_RESULTS) {
+            return testResults;
+        }
+        return testResults.subList(0, MAX_PROFILE_TEST_RESULTS);
+    }
+
+    private Map<String, Object> toTestResultSummary(TestResult r) {
+        Map<String, Object> m = new HashMap<>();
+        if (r == null) return m;
+        m.put("id", r.getId());
+        m.put("testType", r.getTestType());
+        m.put("resultSummary", r.getResultSummary());
+        m.put("isPublic", r.isPublic());
+        m.put("createdAt", r.getCreatedAt() != null ? r.getCreatedAt().toString() : null);
+        m.put("detailUrl", r.getId() != null ? ("/user/test-results/" + r.getId()) : null);
+        m.put("scoreRows", TestResultScoreFormatter.parseScoreRows(r.getTestType(), r.getResultJson(), objectMapper));
+        return m;
     }
 
     private Map<String, Object> toContentSummary(Content c, String lang, Long currentUserId) {

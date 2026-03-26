@@ -14,7 +14,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -267,34 +269,42 @@ public class ContentService {
             return new ArrayList<>();
         }
         String trimmed = query.trim();
-        String normalized = SearchNormalizer.normalize(trimmed);
-        if (normalized.isEmpty()) {
+        List<String> rawWords = SearchNormalizer.rawWords(trimmed);
+        if (rawWords.isEmpty()) {
             return new ArrayList<>();
         }
-        boolean strictAsciiToken = SearchNormalizer.isAsciiAlnumToken(trimmed);
-        boolean enableSubsequence = !strictAsciiToken && SearchNormalizer.shouldEnableSubsequence(trimmed, normalized);
-        String subsequencePattern = SearchNormalizer.buildSubsequenceLikePattern(normalized);
-        List<Content> list = contentRepository.searchByContentOrContentEnOrTitleNormalized(trimmed, normalized, subsequencePattern, enableSubsequence);
-        // 纯英文数字词采用严格字面匹配，避免“去空格归一化”导致命中过宽
-        if (strictAsciiToken) {
-            list = list.stream().filter(c -> contentMatchesLiteralQuery(c, trimmed)).collect(Collectors.toList());
-        }
-        // 多关键词且用户未用空格分隔时：只保留“关键词之间间隔”在限制内的内容；若用户用空格分隔则不限制
-        List<String> words = SearchNormalizer.normalizedWords(trimmed);
-        boolean userUsedSpaces = trimmed.contains(" ");
-        if (words.size() >= 2 && !userUsedSpaces) {
-            int maxGap = SearchNormalizer.MAX_KEYWORD_GAP_CHARS;
-            list = list.stream().filter(c -> contentMatchesWithMaxGap(c, words, maxGap)).collect(Collectors.toList());
-        }
-        return list;
-    }
 
-    /** 判断内容在 content/contentEn 任一字段中，按序包含所有词且相邻词间隔不超过 maxGap。 */
-    private boolean contentMatchesWithMaxGap(Content c, List<String> normalizedWords, int maxGap) {
-        String normContent = c.getContent() != null ? SearchNormalizer.normalize(c.getContent()) : "";
-        String normContentEn = c.getContentEn() != null ? SearchNormalizer.normalize(c.getContentEn()) : "";
-        return SearchNormalizer.matchesWithMaxGap(normContent, normalizedWords, maxGap)
-                || SearchNormalizer.matchesWithMaxGap(normContentEn, normalizedWords, maxGap);
+        // 空格分词默认 OR：逐词做轻量查询并合并去重
+        Map<Long, Content> merged = new LinkedHashMap<>();
+        for (String word : rawWords) {
+            List<Content> simpleMatches = contentRepository.searchByContentOrContentEnOrTitle(word);
+            for (Content c : simpleMatches) {
+                if (c.getId() != null) {
+                    merged.putIfAbsent(c.getId(), c);
+                }
+            }
+        }
+
+        // 单词时再补充重查询，保留去标点/子序列能力
+        if (rawWords.size() == 1) {
+            String normalized = SearchNormalizer.normalize(trimmed);
+            if (!normalized.isEmpty()) {
+                boolean strictAsciiToken = SearchNormalizer.isAsciiAlnumToken(trimmed);
+                boolean enableSubsequence = !strictAsciiToken && SearchNormalizer.shouldEnableSubsequence(trimmed, normalized);
+                String subsequencePattern = SearchNormalizer.buildSubsequenceLikePattern(normalized);
+                List<Content> heavyMatches = contentRepository.searchByContentOrContentEnOrTitleNormalized(trimmed, normalized, subsequencePattern, enableSubsequence);
+                if (strictAsciiToken) {
+                    heavyMatches = heavyMatches.stream().filter(c -> contentMatchesLiteralQuery(c, trimmed)).collect(Collectors.toList());
+                }
+                for (Content c : heavyMatches) {
+                    if (c.getId() != null) {
+                        merged.putIfAbsent(c.getId(), c);
+                    }
+                }
+            }
+        }
+
+        return new ArrayList<>(merged.values());
     }
 
     /** 严格字面匹配（忽略大小写），用于英文数字词收紧结果。 */

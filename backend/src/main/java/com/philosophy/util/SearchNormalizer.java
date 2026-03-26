@@ -1,8 +1,10 @@
 package com.philosophy.util;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -54,6 +56,29 @@ public final class SearchNormalizer {
             }
         }
         return words;
+    }
+
+    /**
+     * 将查询按空白拆分为原始词（不做去标点），用于“空格=OR”的逐词查询。
+     * - 去首尾空白
+     * - 按连续空白拆分
+     * - 去重并保持原顺序
+     * - 跳过空串
+     */
+    public static List<String> rawWords(String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return List.of();
+        }
+        String[] parts = SPLIT_WORDS.split(query.trim());
+        Set<String> unique = new LinkedHashSet<>();
+        for (String p : parts) {
+            if (p == null) continue;
+            String t = p.trim();
+            if (!t.isEmpty()) {
+                unique.add(t);
+            }
+        }
+        return new ArrayList<>(unique);
     }
 
     /**
