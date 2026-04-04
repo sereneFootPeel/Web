@@ -16,7 +16,6 @@ import com.philosophy.model.Like;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -38,6 +37,8 @@ import org.slf4j.LoggerFactory;
 public class HomeController {
 
     private static final Logger logger = LoggerFactory.getLogger(HomeController.class);
+    private static final int SEARCH_PREVIEW_LIMIT = 5;
+    private static final int SEARCH_PAGE_MAX_SIZE = 20;
 
     private final PhilosopherService philosopherService;
     private final SchoolService schoolService;
@@ -83,6 +84,25 @@ public class HomeController {
     private void sortPhilosophersByBirth(List<Philosopher> philosophers) {
         if (philosophers == null || philosophers.isEmpty()) return;
         philosophers.sort(Comparator.comparing(this::philosopherSortKey));
+    }
+
+    private String sanitizeSearchQuery(String query) {
+        return query == null ? "" : query.trim();
+    }
+
+    private int sanitizeSearchPage(int page) {
+        return Math.max(page, 0);
+    }
+
+    private int sanitizeSearchSize(int size) {
+        return Math.max(1, Math.min(size, SEARCH_PAGE_MAX_SIZE));
+    }
+
+    private <T> List<T> previewResults(List<T> items) {
+        if (items == null || items.isEmpty()) {
+            return List.of();
+        }
+        return new ArrayList<>(items.subList(0, Math.min(SEARCH_PREVIEW_LIMIT, items.size())));
     }
 
     /**
@@ -142,14 +162,15 @@ public class HomeController {
                                                          Authentication authentication,
                                                          HttpServletRequest request) {
         Map<String, Object> response = new HashMap<>();
+        String trimmedQuery = sanitizeSearchQuery(query);
         
-        if (query == null || query.trim().isEmpty()) {
+        if (trimmedQuery.isEmpty()) {
             response.put("success", false);
             response.put("message", "搜索关键词不能为空");
             return ResponseEntity.badRequest().body(response);
         }
         
-        if (query.length() > 100) {
+        if (trimmedQuery.length() > 100) {
             response.put("success", false);
             response.put("message", "搜索关键词长度不能超过100个字符");
             return ResponseEntity.badRequest().body(response);
@@ -158,9 +179,9 @@ public class HomeController {
         try {
             String language = languageUtil.getLanguage(request);
 
-            List<Philosopher> philosophers = philosopherService.searchPhilosophers(query);
-            List<School> schools = schoolService.searchSchools(query);
-            List<Content> contents = contentService.searchContents(query);
+            List<Philosopher> philosophers = philosopherService.searchPhilosophers(trimmedQuery);
+            List<School> schools = schoolService.searchSchools(trimmedQuery);
+            List<Content> contents = contentService.searchContents(trimmedQuery);
 
             boolean isAuthenticated = authentication != null
                     && authentication.isAuthenticated()
@@ -168,8 +189,16 @@ public class HomeController {
             User currentUser = isAuthenticated ? (User) authentication.getPrincipal() : null;
             contents = contentService.filterContentsByPrivacy(contents, currentUser);
 
+            int philosopherTotalCount = philosophers.size();
+            int schoolTotalCount = schools.size();
+            int contentTotalCount = contents.size();
+
+            List<Philosopher> philosopherPreview = previewResults(philosophers);
+            List<School> schoolPreview = previewResults(schools);
+            List<Content> contentPreview = previewResults(contents);
+
             List<Map<String, Object>> philosopherItems = new ArrayList<>();
-            for (Philosopher p : philosophers) {
+            for (Philosopher p : philosopherPreview) {
                 Map<String, Object> pMap = new HashMap<>();
                 pMap.put("id", p.getId());
                 pMap.put("displayName", translationService.getPhilosopherDisplayName(p, language));
@@ -180,7 +209,7 @@ public class HomeController {
             }
 
             List<Map<String, Object>> schoolItems = new ArrayList<>();
-            for (School s : schools) {
+            for (School s : schoolPreview) {
                 Map<String, Object> sMap = new HashMap<>();
                 sMap.put("id", s.getId());
                 sMap.put("displayName", translationService.getSchoolDisplayName(s, language));
@@ -190,7 +219,7 @@ public class HomeController {
             }
 
             List<Map<String, Object>> contentItems = new ArrayList<>();
-            for (Content c : contents) {
+            for (Content c : contentPreview) {
                 Map<String, Object> cMap = new HashMap<>();
                 cMap.put("id", c.getId());
                 cMap.put("title", null);
@@ -238,15 +267,19 @@ public class HomeController {
             }
 
             response.put("success", true);
-            response.put("query", query);
+            response.put("query", trimmedQuery);
             response.put("philosophers", philosopherItems);
             response.put("schools", schoolItems);
             response.put("contents", contentItems);
-            response.put("totalResults", philosopherItems.size() + schoolItems.size() + contentItems.size());
+            response.put("previewLimit", SEARCH_PREVIEW_LIMIT);
+            response.put("philosopherTotalCount", philosopherTotalCount);
+            response.put("schoolTotalCount", schoolTotalCount);
+            response.put("contentTotalCount", contentTotalCount);
+            response.put("totalResults", philosopherTotalCount + schoolTotalCount + contentTotalCount);
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            logger.error("搜索接口异常 query={}", query, e);
+            logger.error("搜索接口异常 query={}", trimmedQuery, e);
             response.put("success", false);
             response.put("message", "搜索时发生错误: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
@@ -263,14 +296,23 @@ public class HomeController {
             @RequestParam(value = "size", defaultValue = "10") int size,
             Authentication authentication,
             HttpServletRequest request) {
-        
-        logger.info("收到搜索分页请求 - query: {}, category: {}, page: {}, size: {}", query, category, page, size);
-        
         Map<String, Object> response = new HashMap<>();
+        String trimmedQuery = sanitizeSearchQuery(query);
+        String normalizedCategory = category == null ? "" : category.trim().toLowerCase();
+        int safePage = sanitizeSearchPage(page);
+        int safeSize = sanitizeSearchSize(size);
+
+        logger.info("收到搜索分页请求 - query: {}, category: {}, page: {}, size: {}", trimmedQuery, normalizedCategory, safePage, safeSize);
         
-        if (query == null || query.trim().isEmpty()) {
+        if (trimmedQuery.isEmpty()) {
             response.put("success", false);
             response.put("message", "搜索关键词不能为空");
+            return ResponseEntity.badRequest().body(response);
+        }
+
+        if (trimmedQuery.length() > 100) {
+            response.put("success", false);
+            response.put("message", "搜索关键词长度不能超过100个字符");
             return ResponseEntity.badRequest().body(response);
         }
         
@@ -282,20 +324,24 @@ public class HomeController {
             int totalCount = 0;
             
             // 根据类别搜索
-            switch (category.toLowerCase()) {
+            switch (normalizedCategory) {
                 case "philosophers":
-                    List<Philosopher> allPhilosophers = philosopherService.searchPhilosophers(query);
+                    List<Philosopher> allPhilosophers = philosopherService.searchPhilosophers(trimmedQuery);
                     totalCount = allPhilosophers.size();
-                    int startP = page * size;
-                    int endP = Math.min(startP + size, totalCount);
+                    int startP = safePage * safeSize;
+                    int endP = Math.min(startP + safeSize, totalCount);
                     if (startP < totalCount) {
                         List<Philosopher> pagedPhilosophers = allPhilosophers.subList(startP, endP);
                         for (Philosopher p : pagedPhilosophers) {
                             Map<String, Object> pMap = new HashMap<>();
                             pMap.put("id", p.getId());
-                            pMap.put("name", translationService.getPhilosopherDisplayName(p, language));
+                            pMap.put("displayName", translationService.getPhilosopherDisplayName(p, language));
+                            pMap.put("name", p.getName());
+                            pMap.put("nameEn", p.getNameEn());
                             pMap.put("bio", translationService.getPhilosopherDisplayBiography(p, language));
-                            pMap.put("formattedDate", DateUtils.formatBirthYearToDateRange(p.getBirthYear(), p.getDeathYear()));
+                            String dateRange = DateUtils.formatBirthYearToDateRange(p.getBirthYear(), p.getDeathYear());
+                            pMap.put("dateRange", dateRange);
+                            pMap.put("formattedDate", dateRange);
                             results.add(pMap);
                         }
                     }
@@ -303,16 +349,18 @@ public class HomeController {
                     break;
                     
                 case "schools":
-                    List<School> allSchools = schoolService.searchSchools(query);
+                    List<School> allSchools = schoolService.searchSchools(trimmedQuery);
                     totalCount = allSchools.size();
-                    int startS = page * size;
-                    int endS = Math.min(startS + size, totalCount);
+                    int startS = safePage * safeSize;
+                    int endS = Math.min(startS + safeSize, totalCount);
                     if (startS < totalCount) {
                         List<School> pagedSchools = allSchools.subList(startS, endS);
                         for (School s : pagedSchools) {
                             Map<String, Object> sMap = new HashMap<>();
                             sMap.put("id", s.getId());
-                            sMap.put("name", translationService.getSchoolDisplayName(s, language));
+                            sMap.put("displayName", translationService.getSchoolDisplayName(s, language));
+                            sMap.put("name", s.getName());
+                            sMap.put("nameEn", s.getNameEn());
                             sMap.put("description", translationService.getSchoolDisplayDescription(s, language));
                             results.add(sMap);
                         }
@@ -321,7 +369,7 @@ public class HomeController {
                     break;
                     
                 case "contents":
-                    List<Content> allContents = contentService.searchContents(query);
+                    List<Content> allContents = contentService.searchContents(trimmedQuery);
                     logger.info("内容搜索结果（过滤前）: {}", allContents.size());
                     
                     // 获取当前用户信息用于隐私过滤
@@ -335,8 +383,8 @@ public class HomeController {
                     totalCount = allContents.size();
                     logger.info("内容搜索结果（过滤后）: {}", totalCount);
                     
-                    int startC = page * size;
-                    int endC = Math.min(startC + size, totalCount);
+                    int startC = safePage * safeSize;
+                    int endC = Math.min(startC + safeSize, totalCount);
                     if (startC < totalCount) {
                         List<Content> pagedContents = allContents.subList(startC, endC);
                         
@@ -344,14 +392,18 @@ public class HomeController {
                             Map<String, Object> cMap = new HashMap<>();
                             cMap.put("id", c.getId());
                             cMap.put("title", null);
-                            // 使用 TranslationService 获取内容显示文本
-                            cMap.put("content", translationService.getContentDisplayText(c, language));
+                            cMap.put("content", translationService.getContentDisplayText(c, "zh"));
+                            cMap.put("contentEn", translationService.getContentDisplayText(c, "en"));
+                            cMap.put("likeCount", c.getLikeCount() != null ? c.getLikeCount() : 0);
                             
                             // 哲学家信息
                             if (c.getPhilosopher() != null) {
                                 Map<String, Object> pMap = new HashMap<>();
                                 pMap.put("id", c.getPhilosopher().getId());
-                                pMap.put("name", translationService.getPhilosopherDisplayName(c.getPhilosopher(), language));
+                                pMap.put("displayName", translationService.getPhilosopherDisplayName(c.getPhilosopher(), language));
+                                pMap.put("name", c.getPhilosopher().getName());
+                                pMap.put("nameEn", c.getPhilosopher().getNameEn());
+                                pMap.put("dateRange", DateUtils.formatBirthYearToDateRange(c.getPhilosopher().getBirthYear(), c.getPhilosopher().getDeathYear()));
                                 cMap.put("philosopher", pMap);
                             }
                             
@@ -359,13 +411,17 @@ public class HomeController {
                             if (c.getSchool() != null) {
                                 Map<String, Object> sMap = new HashMap<>();
                                 sMap.put("id", c.getSchool().getId());
-                                sMap.put("name", translationService.getSchoolDisplayName(c.getSchool(), language));
+                                sMap.put("displayName", translationService.getSchoolDisplayName(c.getSchool(), language));
+                                sMap.put("name", c.getSchool().getName());
+                                sMap.put("nameEn", c.getSchool().getNameEn());
                                 
                                 // 父流派
                                 if (c.getSchool().getParent() != null) {
                                     Map<String, Object> parentMap = new HashMap<>();
                                     parentMap.put("id", c.getSchool().getParent().getId());
-                                    parentMap.put("name", translationService.getSchoolDisplayName(c.getSchool().getParent(), language));
+                                    parentMap.put("displayName", translationService.getSchoolDisplayName(c.getSchool().getParent(), language));
+                                    parentMap.put("name", c.getSchool().getParent().getName());
+                                    parentMap.put("nameEn", c.getSchool().getParent().getNameEn());
                                     sMap.put("parent", parentMap);
                                 }
                                 cMap.put("school", sMap);
@@ -378,10 +434,10 @@ public class HomeController {
                     break;
                     
                 case "users":
-                    List<User> allUsers = userService.searchUsers(query);
+                    List<User> allUsers = userService.searchUsers(trimmedQuery);
                     totalCount = allUsers.size();
-                    int startU = page * size;
-                    int endU = Math.min(startU + size, totalCount);
+                    int startU = safePage * safeSize;
+                    int endU = Math.min(startU + safeSize, totalCount);
                     if (startU < totalCount) {
                         List<User> pagedUsers = allUsers.subList(startU, endU);
                         for (User u : pagedUsers) {
@@ -403,21 +459,22 @@ public class HomeController {
                     return ResponseEntity.badRequest().body(response);
             }
             
-            boolean hasMore = (page + 1) * size < totalCount;
+            boolean hasMore = (safePage + 1) * safeSize < totalCount;
             
             response.put("success", true);
-            response.put("query", query);
-            response.put("category", category);
+            response.put("query", trimmedQuery);
+            response.put("category", normalizedCategory);
             response.put("results", results);
             response.put("totalCount", totalCount);
-            response.put("currentPage", page);
+            response.put("currentPage", safePage);
+            response.put("pageSize", safeSize);
             response.put("hasMore", hasMore);
             
             logger.info("返回搜索结果: success=true, totalCount={}, resultsSize={}, hasMore={}", totalCount, results.size(), hasMore);
             
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            logger.error("搜索时发生错误: category={}, query={}, error={}", category, query, e.getMessage(), e);
+            logger.error("搜索时发生错误: category={}, query={}, error={}", normalizedCategory, trimmedQuery, e.getMessage(), e);
             response.put("success", false);
             response.put("message", "搜索时发生错误: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);

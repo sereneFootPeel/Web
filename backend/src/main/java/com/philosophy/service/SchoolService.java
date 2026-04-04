@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -283,7 +284,37 @@ public class SchoolService {
             }
         }
 
-        return new ArrayList<>(merged.values());
+        List<School> ranked = new ArrayList<>(merged.values());
+        sortSearchResults(ranked, trimmed, rawWords);
+        return ranked;
+    }
+
+    private void sortSearchResults(List<School> schools, String rawQuery, List<String> rawWords) {
+        if (schools == null || schools.size() < 2) {
+            return;
+        }
+        String normalizedQuery = SearchNormalizer.normalize(rawQuery);
+        List<String> normalizedWords = SearchNormalizer.normalizedWords(rawQuery);
+        Map<School, Integer> scoreMap = new HashMap<>();
+
+        for (School school : schools) {
+            int score = Math.max(
+                    SearchNormalizer.scoreTextMatch(school.getName(), rawQuery, normalizedQuery, rawWords, normalizedWords),
+                    SearchNormalizer.scoreTextMatch(school.getNameEn(), rawQuery, normalizedQuery, rawWords, normalizedWords)
+            );
+            scoreMap.put(school, score);
+        }
+
+        schools.sort(
+                Comparator.comparingInt((School school) -> scoreMap.getOrDefault(school, 0)).reversed()
+                        .thenComparingInt(school -> safeLength(school.getName(), school.getNameEn()))
+                        .thenComparing(school -> school.getId() == null ? Long.MAX_VALUE : school.getId())
+        );
+    }
+
+    private int safeLength(String primary, String fallback) {
+        String value = primary != null && !primary.isBlank() ? primary : fallback;
+        return value == null ? Integer.MAX_VALUE : value.length();
     }
     
     // 获取指定流派及其所有子孙流派的ID集合

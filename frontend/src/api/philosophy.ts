@@ -85,6 +85,77 @@ export type PhilosopherData = {
   hasMore?: boolean
 }
 
+export type SearchPhilosopherItem = {
+  id: number
+  displayName?: string
+  name?: string
+  nameEn?: string | null
+  dateRange?: string | null
+  bio?: string | null
+}
+
+export type SearchSchoolItem = {
+  id: number
+  displayName?: string
+  name?: string
+  nameEn?: string | null
+  description?: string | null
+}
+
+export type SearchContentItem = {
+  id: number
+  title?: string | null
+  content?: string | null
+  contentEn?: string | null
+  likeCount?: number
+  isLiked?: boolean
+  school?: {
+    id: number
+    displayName?: string
+    name?: string
+    nameEn?: string | null
+    parent?: {
+      id: number
+      displayName?: string
+      name?: string
+      nameEn?: string | null
+    } | null
+  } | null
+  philosopher?: {
+    id: number
+    displayName?: string
+    name?: string
+    nameEn?: string | null
+    dateRange?: string | null
+  } | null
+}
+
+export type SearchSummaryResponse = {
+  success: boolean
+  query: string
+  philosophers: SearchPhilosopherItem[]
+  schools: SearchSchoolItem[]
+  contents: SearchContentItem[]
+  previewLimit: number
+  philosopherTotalCount: number
+  schoolTotalCount: number
+  contentTotalCount: number
+  totalResults: number
+}
+
+export type SearchCategory = 'philosophers' | 'schools' | 'contents'
+
+export type SearchPagedResponse<T> = {
+  success: boolean
+  query: string
+  category: SearchCategory
+  results: T[]
+  totalCount: number
+  currentPage: number
+  pageSize: number
+  hasMore: boolean
+}
+
 export const philosophyApi = {
   health: () => apiGet<HealthResponse>('/health'),
   philosopherNames: (offset = 0, limit = 30) =>
@@ -97,14 +168,11 @@ export const philosophyApi = {
   schoolContents: (id: number, page = 0, size = 10) =>
     apiGet<SchoolContentsPageResponse>(`/schools/contents/more?id=${id}&page=${page}&size=${size}`),
   search: (query: string) =>
-    apiGet<{
-      success: boolean
-      query: string
-      philosophers: unknown[]
-      schools: unknown[]
-      contents: unknown[]
-      totalResults: number
-    }>(`/search?query=${encodeURIComponent(query)}`),
+    apiGet<SearchSummaryResponse>(`/search?query=${encodeURIComponent(query)}`),
+  searchPaged: <T>(category: SearchCategory, query: string, page = 0, size = 5) =>
+    apiGet<SearchPagedResponse<T>>(
+      `/search/paged?query=${encodeURIComponent(query)}&category=${encodeURIComponent(category)}&page=${page}&size=${size}`
+    ),
   contentById: (id: number) =>
     apiGet<{
       success: boolean

@@ -166,6 +166,92 @@ public final class SearchNormalizer {
         }
         return text.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
     }
+
+    /**
+     * 为单段文本计算搜索相关性分数：精确匹配、前缀匹配、规范化匹配、词命中数、词间距越好分数越高。
+     */
+    public static int scoreTextMatch(String text,
+                                     String rawQuery,
+                                     String normalizedQuery,
+                                     List<String> rawWords,
+                                     List<String> normalizedWords) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+
+        String safeRawQuery = rawQuery == null ? "" : rawQuery.trim();
+        String lowerText = text.toLowerCase(Locale.ROOT);
+        String lowerQuery = safeRawQuery.toLowerCase(Locale.ROOT);
+        String normalizedText = normalize(text);
+
+        int score = 0;
+
+        if (!lowerQuery.isEmpty()) {
+            if (lowerText.equals(lowerQuery)) {
+                score += 1000;
+            }
+            if (!normalizedQuery.isEmpty() && normalizedText.equals(normalizedQuery)) {
+                score += 920;
+            }
+            if (lowerText.startsWith(lowerQuery)) {
+                score += 650;
+            }
+            if (!normalizedQuery.isEmpty() && normalizedText.startsWith(normalizedQuery)) {
+                score += 560;
+            }
+
+            int containsIndex = lowerText.indexOf(lowerQuery);
+            if (containsIndex >= 0) {
+                score += 360 + Math.max(0, 40 - Math.min(containsIndex, 40));
+            }
+
+            if (!normalizedQuery.isEmpty()) {
+                int normalizedContainsIndex = normalizedText.indexOf(normalizedQuery);
+                if (normalizedContainsIndex >= 0) {
+                    score += 320 + Math.max(0, 30 - Math.min(normalizedContainsIndex, 30));
+                }
+            }
+        }
+
+        int rawWordHits = 0;
+        if (rawWords != null) {
+            for (String rawWord : rawWords) {
+                if (rawWord != null && !rawWord.isBlank() && containsIgnoreCase(text, rawWord)) {
+                    rawWordHits++;
+                }
+            }
+        }
+        score += rawWordHits * 70;
+
+        int normalizedWordHits = 0;
+        boolean allNormalizedWordsMatched = normalizedWords != null && !normalizedWords.isEmpty();
+        if (normalizedWords != null) {
+            for (String normalizedWord : normalizedWords) {
+                if (normalizedWord == null || normalizedWord.isBlank()) {
+                    continue;
+                }
+                if (!normalizedText.isEmpty() && normalizedText.contains(normalizedWord)) {
+                    normalizedWordHits++;
+                } else {
+                    allNormalizedWordsMatched = false;
+                }
+            }
+        }
+        score += normalizedWordHits * 55;
+
+        if (allNormalizedWordsMatched) {
+            score += 180;
+        }
+        if (normalizedWords != null && normalizedWords.size() > 1
+                && matchesWithMaxGap(normalizedText, normalizedWords, MAX_KEYWORD_GAP_CHARS)) {
+            score += 160;
+        }
+
+        if (!normalizedText.isEmpty()) {
+            score += Math.max(0, 30 - Math.min(normalizedText.length(), 30));
+        }
+        return score;
+    }
 }
 
 

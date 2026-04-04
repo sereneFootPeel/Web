@@ -18,6 +18,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -328,7 +330,37 @@ public class PhilosopherService {
             }
         }
 
-        return new ArrayList<>(merged.values());
+        List<Philosopher> ranked = new ArrayList<>(merged.values());
+        sortSearchResults(ranked, trimmed, rawWords);
+        return ranked;
+    }
+
+    private void sortSearchResults(List<Philosopher> philosophers, String rawQuery, List<String> rawWords) {
+        if (philosophers == null || philosophers.size() < 2) {
+            return;
+        }
+        String normalizedQuery = SearchNormalizer.normalize(rawQuery);
+        List<String> normalizedWords = SearchNormalizer.normalizedWords(rawQuery);
+        Map<Philosopher, Integer> scoreMap = new HashMap<>();
+
+        for (Philosopher philosopher : philosophers) {
+            int score = Math.max(
+                    SearchNormalizer.scoreTextMatch(philosopher.getName(), rawQuery, normalizedQuery, rawWords, normalizedWords),
+                    SearchNormalizer.scoreTextMatch(philosopher.getNameEn(), rawQuery, normalizedQuery, rawWords, normalizedWords)
+            );
+            scoreMap.put(philosopher, score);
+        }
+
+        philosophers.sort(
+                Comparator.comparingInt((Philosopher philosopher) -> scoreMap.getOrDefault(philosopher, 0)).reversed()
+                        .thenComparingInt(philosopher -> safeLength(philosopher.getName(), philosopher.getNameEn()))
+                        .thenComparing(philosopher -> philosopher.getId() == null ? Long.MAX_VALUE : philosopher.getId())
+        );
+    }
+
+    private int safeLength(String primary, String fallback) {
+        String value = primary != null && !primary.isBlank() ? primary : fallback;
+        return value == null ? Integer.MAX_VALUE : value.length();
     }
 
     /**

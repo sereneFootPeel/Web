@@ -1,31 +1,39 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { philosophyApi } from '../api/philosophy'
+import {
+  philosophyApi,
+  type SearchCategory,
+  type SearchContentItem,
+  type SearchPhilosopherItem,
+  type SearchSchoolItem,
+} from '../api/philosophy'
 import { ContentCard } from '../components/ContentCard'
 import { PhilosopherCard } from '../components/PhilosopherCard'
 import { useLanguage } from '../contexts/LanguageContext'
 
-type PhilosopherSearchItem = {
-  id: number
-  displayName?: string
-  name?: string
-  nameEn?: string | null
-  dateRange?: string | null
+type SearchResult = {
+  philosophers: SearchPhilosopherItem[]
+  schools: SearchSchoolItem[]
+  contents: SearchContentItem[]
 }
 
-type SearchResult = {
-  philosophers: PhilosopherSearchItem[]
-  schools: { id: number; displayName?: string; name?: string }[]
-  contents: Array<{
-    id: number
-    title?: string | null
-    content?: string | null
-    contentEn?: string | null
-    likeCount?: number
-    isLiked?: boolean
-    school?: { id: number; displayName: string } | null
-    philosopher?: { id: number; displayName: string } | null
-  }>
+type SearchTotals = Record<SearchCategory, number>
+type SearchLoadingMap = Record<SearchCategory, boolean>
+
+const SEARCH_PAGE_SIZE = 5
+const EMPTY_TOTALS: SearchTotals = { philosophers: 0, schools: 0, contents: 0 }
+const EMPTY_LOADING_MORE: SearchLoadingMap = { philosophers: false, schools: false, contents: false }
+
+function mergeById<T extends { id: number }>(current: T[], incoming: T[]) {
+  const seen = new Set(current.map((item) => item.id))
+  const merged = [...current]
+  for (const item of incoming) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id)
+      merged.push(item)
+    }
+  }
+  return merged
 }
 
 /** 可折叠分类区块，复用布局 */
@@ -37,7 +45,7 @@ function SearchResultSection({
   children,
 }: {
   title: string
-  count: number
+  count: React.ReactNode
   expanded: boolean
   onToggle: () => void
   children: React.ReactNode
@@ -89,10 +97,12 @@ function EntityLinkCard({ to, name }: { to: string; name: string }) {
 export function Search() {
   const { t } = useLanguage()
   const [searchParams, setSearchParams] = useSearchParams()
-  const qFromUrl = searchParams.get('q') ?? ''
+  const qFromUrl = (searchParams.get('q') ?? '').trim()
   const [query, setQuery] = useState(qFromUrl)
   const [results, setResults] = useState<SearchResult | null>(null)
+  const [totals, setTotals] = useState<SearchTotals>(EMPTY_TOTALS)
   const [loading, setLoading] = useState(false)
+  const [loadingMore, setLoadingMore] = useState<SearchLoadingMap>(EMPTY_LOADING_MORE)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     philosophers: true,
@@ -104,25 +114,36 @@ export function Search() {
 
   // URL 中的 q 变化时（含从 Footer 跳转、直接访问、表单提交）自动执行搜索
   useEffect(() => {
-    const q = (searchParams.get('q') ?? '').trim()
-    if (!q) return
+    const q = qFromUrl
+    setQuery(q)
+    if (!q) {
+      setResults(null)
+      setTotals(EMPTY_TOTALS)
+      setError(null)
+      setLoading(false)
+      setLoadingMore(EMPTY_LOADING_MORE)
+      return
+    }
     setQuery(q)
     let cancelled = false
     setLoading(true)
     setError(null)
     setResults(null)
+    setTotals(EMPTY_TOTALS)
+    setLoadingMore(EMPTY_LOADING_MORE)
     philosophyApi
       .search(q)
       .then((res) => {
         if (cancelled) return
-        const rawPhilosophers = res.philosophers
-        const philosophersList = Array.isArray(rawPhilosophers)
-          ? rawPhilosophers.filter((p): p is PhilosopherSearchItem => p != null && typeof (p as { id?: unknown }).id === 'number')
-          : []
         setResults({
-          philosophers: philosophersList,
-          schools: (Array.isArray(res.schools) ? res.schools : []) as SearchResult['schools'],
-          contents: (Array.isArray(res.contents) ? res.contents : []) as SearchResult['contents'],
+          philosophers: Array.isArray(res.philosophers) ? res.philosophers : [],
+          schools: Array.isArray(res.schools) ? res.schools : [],
+          contents: Array.isArray(res.contents) ? res.contents : [],
+        })
+        setTotals({
+          philosophers: res.philosopherTotalCount ?? res.philosophers.length,
+          schools: res.schoolTotalCount ?? res.schools.length,
+          contents: res.contentTotalCount ?? res.contents.length,
         })
       })
       .catch((e) => {
@@ -134,12 +155,65 @@ export function Search() {
     return () => {
       cancelled = true
     }
-  }, [searchParams.get('q') ?? ''])
+  }, [qFromUrl, t])
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!query.trim()) return
-    setSearchParams({ q: query.trim() }) // 更新 URL 会触发 useEffect 执行搜索
+    const trimmed = query.trim()
+    if (!trimmed) {
+      setSearchParams({})
+      return
+    }
+    setSearchParams({ q: trimmed }) // 更新 URL 会触发 useEffect 执行搜索
+  }
+
+  const handleLoadMore = async <K extends SearchCategory>(category: K) => {
+    if (!results || !qFromUrl || loadingMore[category]) return
+    const loadedCount = results[category].length
+    if (loadedCount >= totals[category]) return
+
+    setLoadingMore((prev) => ({ ...prev, [category]: true }))
+    try {
+      const nextPage = Math.floor(loadedCount / SEARCH_PAGE_SIZE)
+      const res = await philosophyApi.searchPaged<SearchResult[K][number]>(category, qFromUrl, nextPage, SEARCH_PAGE_SIZE)
+      setResults((prev) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          [category]: mergeById(prev[category], Array.isArray(res.results) ? res.results : []),
+        }
+      })
+      setTotals((prev) => ({ ...prev, [category]: res.totalCount ?? prev[category] }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('加载更多失败', 'Failed to load more results'))
+    } finally {
+      setLoadingMore((prev) => ({ ...prev, [category]: false }))
+    }
+  }
+
+  const renderLoadMore = (category: SearchCategory) => {
+    if (!results || results[category].length >= totals[category]) {
+      return null
+    }
+    return (
+      <div className="pt-1">
+        <button
+          type="button"
+          onClick={() => void handleLoadMore(category)}
+          disabled={loadingMore[category]}
+          className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
+          style={{
+            borderColor: 'var(--border-primary)',
+            background: 'var(--bg-secondary, var(--bg-primary))',
+            color: 'var(--text-primary)',
+          }}
+        >
+          {loadingMore[category]
+            ? t('加载中...', 'Loading...')
+            : t('加载更多', 'Load more')}
+        </button>
+      </div>
+    )
   }
 
   return (
@@ -170,12 +244,18 @@ export function Search() {
         </button>
       </form>
       {error && <p className="text-red-500 mb-4">{error}</p>}
+      {loading && <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>{t('正在获取搜索结果...', 'Fetching search results...')}</p>}
       {results && (
         <div className="space-y-4">
+          {(totals.philosophers + totals.schools + totals.contents > 0) && (
+            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+              {t('共找到', 'Found')} {totals.philosophers + totals.schools + totals.contents} {t('条结果', 'results')}
+            </p>
+          )}
           {results.philosophers.length > 0 && (
             <SearchResultSection
               title={t('哲学家', 'Philosophers')}
-              count={results.philosophers.length}
+              count={`${results.philosophers.length}/${totals.philosophers}`}
               expanded={expanded.philosophers}
               onToggle={() => toggleSection('philosophers')}
             >
@@ -184,34 +264,39 @@ export function Search() {
                   <PhilosopherCard key={p.id} philosopher={p} />
                 ))}
               </div>
+              {renderLoadMore('philosophers')}
             </SearchResultSection>
           )}
           {results.schools.length > 0 && (
             <SearchResultSection
               title={t('流派', 'Schools')}
-              count={results.schools.length}
+              count={`${results.schools.length}/${totals.schools}`}
               expanded={expanded.schools}
               onToggle={() => toggleSection('schools')}
             >
-              {results.schools.map((s) => (
-                <EntityLinkCard
-                  key={s.id}
-                  to={`/schools?schoolId=${s.id}`}
-                  name={s.displayName ?? s.name ?? String(s.id)}
-                />
-              ))}
+              <div className="space-y-3">
+                {results.schools.map((s) => (
+                  <EntityLinkCard
+                    key={s.id}
+                    to={`/schools?schoolId=${s.id}`}
+                    name={s.displayName ?? s.name ?? s.nameEn ?? String(s.id)}
+                  />
+                ))}
+              </div>
+              {renderLoadMore('schools')}
             </SearchResultSection>
           )}
           {results.contents.length > 0 && (
             <SearchResultSection
               title={t('内容', 'Contents')}
-              count={results.contents.length}
+              count={`${results.contents.length}/${totals.contents}`}
               expanded={expanded.contents}
               onToggle={() => toggleSection('contents')}
             >
               {results.contents.map((item) => (
                 <ContentCard key={item.id} item={item} showSchool={true} showLikeButton={true} t={t} />
               ))}
+              {renderLoadMore('contents')}
             </SearchResultSection>
           )}
           {results.philosophers.length === 0 &&

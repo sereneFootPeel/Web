@@ -14,6 +14,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -304,7 +306,41 @@ public class ContentService {
             }
         }
 
-        return new ArrayList<>(merged.values());
+        List<Content> ranked = new ArrayList<>(merged.values());
+        sortSearchResults(ranked, trimmed, rawWords);
+        return ranked;
+    }
+
+    private void sortSearchResults(List<Content> contents, String rawQuery, List<String> rawWords) {
+        if (contents == null || contents.size() < 2) {
+            return;
+        }
+        String normalizedQuery = SearchNormalizer.normalize(rawQuery);
+        List<String> normalizedWords = SearchNormalizer.normalizedWords(rawQuery);
+        Map<Content, Integer> scoreMap = new HashMap<>();
+
+        for (Content content : contents) {
+            int score = Math.max(
+                    SearchNormalizer.scoreTextMatch(content.getContent(), rawQuery, normalizedQuery, rawWords, normalizedWords),
+                    SearchNormalizer.scoreTextMatch(content.getContentEn(), rawQuery, normalizedQuery, rawWords, normalizedWords)
+            );
+            scoreMap.put(content, score);
+        }
+
+        contents.sort(
+                Comparator.comparingInt((Content content) -> scoreMap.getOrDefault(content, 0)).reversed()
+                        .thenComparingInt(content -> safeLength(content.getContent(), content.getContentEn()))
+                        .thenComparing((Content content) -> {
+                            Integer likeCount = content.getLikeCount();
+                            return likeCount == null ? Integer.MIN_VALUE : likeCount;
+                        }, Comparator.reverseOrder())
+                        .thenComparing(content -> content.getId() == null ? Long.MAX_VALUE : content.getId())
+        );
+    }
+
+    private int safeLength(String primary, String fallback) {
+        String value = primary != null && !primary.isBlank() ? primary : fallback;
+        return value == null ? Integer.MAX_VALUE : value.length();
     }
 
     /** 严格字面匹配（忽略大小写），用于英文数字词收紧结果。 */
