@@ -4,7 +4,14 @@ echo "[1] pull latest"
 cd /home/linuxuser/Web
 git pull --ff-only origin main
 
-echo "[2] update database user"
+echo "[2] build frontend"
+cd /home/linuxuser/Web/frontend
+npm install
+npm run build
+sudo rm -rf /var/www/philosophy/*
+sudo cp -r dist/* /var/www/philosophy/
+
+echo "[3] update database user"
 mysql -uroot -p'Mmoonj10y?' <<'SQL'
 CREATE USER IF NOT EXISTS 'philosophy_user'@'localhost' IDENTIFIED BY 'Mmoonj10y?';
 ALTER USER 'philosophy_user'@'localhost' IDENTIFIED BY 'Mmoonj10y?';
@@ -15,7 +22,7 @@ GRANT ALL PRIVILEGES ON philosophy_db.* TO 'philosophy_user'@'%';
 FLUSH PRIVILEGES;
 SQL
 
-echo "[3] restart backend"
+echo "[4] restart backend"
 cd /home/linuxuser/Web/backend
 chmod +x ./mvnw
 if command -v fuser >/dev/null 2>&1; then
@@ -23,7 +30,7 @@ if command -v fuser >/dev/null 2>&1; then
 fi
 nohup ./mvnw -q spring-boot:run > spring-boot.run.log 2>&1 &
 
-echo "[4] wait and verify"
+echo "[5] wait and verify"
 sleep 55
 ss -ltnp | grep ':8080' || true
 mysql -uroot -p'Mmoonj10y?' -D philosophy_db -e "SHOW TABLES LIKE 'history_%';"
