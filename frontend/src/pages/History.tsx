@@ -61,7 +61,7 @@ export function History() {
   const [cardsScrollSyncNonce, setCardsScrollSyncNonce] = useState(0)
 
   const [rawMarkers, setRawMarkers] = useState<ApiMarker[]>([])
-  const [, setSnapshotLoading] = useState(true)
+  const [snapshotLoading, setSnapshotLoading] = useState(true)
   const [snapshotError, setSnapshotError] = useState<string | null>(null)
 
   const [selectedRegionId, setSelectedRegionId] = useState<number | null>(null)
@@ -352,6 +352,22 @@ export function History() {
           role="status"
         >
           {snapshotError}
+        </div>
+      ) : null}
+      {!snapshotLoading && !snapshotError && rawMarkers.length === 0 ? (
+        <div
+          className="pointer-events-none absolute left-1/2 top-3 z-30 max-w-[min(32rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md px-3 py-2 text-center text-xs shadow"
+          style={{
+            backgroundColor: 'var(--bg-primary)',
+            color: 'var(--text-secondary)',
+            border: '1px solid var(--border-primary)',
+          }}
+          role="status"
+        >
+          {t(
+            '当前时间段暂无历史数据，请先确认服务器数据库中的 history_country / history_event 已完成种子数据导入。',
+            'No history data is available for the current timeline range. Verify that history_country / history_event seed data has been imported on the server.',
+          )}
         </div>
       ) : null}
       <div

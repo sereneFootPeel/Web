@@ -34,5 +34,5 @@ echo "[5] wait and verify"
 sleep 55
 ss -ltnp | grep ':8080' || true
 mysql -uroot -p'Mmoonj10y?' -D philosophy_db -e "SHOW TABLES LIKE 'history_%';"
-curl -s -o /dev/null -w "api_status=%{http_code}\n" http://127.0.0.1/api/history/countries || true
+curl -s -o /dev/null -w "api_status=%{http_code}\n" "http://127.0.0.1/api/history/snapshot?year=1900" || true
 curl -s -o /dev/null -w "site_status=%{http_code}\n" http://127.0.0.1/ || true
