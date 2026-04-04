@@ -7,6 +7,7 @@ export type User = {
   role: string
   firstName?: string
   lastName?: string
+  language?: 'zh' | 'en'
   theme?: string
 }
 

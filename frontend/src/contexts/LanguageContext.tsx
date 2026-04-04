@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import { useAuth } from './AuthContext'
 
 export type Language = 'zh' | 'en'
 
@@ -12,17 +13,33 @@ const LanguageContext = createContext<LanguageContextValue | null>(null)
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>('zh')
+  const { authenticated, user } = useAuth()
+
+  const refreshCurrentLanguage = useCallback(async () => {
+    try {
+      const r = await fetch('/language/current', { credentials: 'include' })
+      const data = r.ok ? await r.json() : null
+      if (data?.language === 'en' || data?.language === 'zh') {
+        setLanguageState(data.language)
+      }
+    } catch {
+      // ignore network failures; keep current UI language
+    }
+  }, [])
 
   useEffect(() => {
-    fetch('/language/current', { credentials: 'include' })
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data?.language === 'en' || data?.language === 'zh') {
-          setLanguageState(data.language)
-        }
-      })
-      .catch(() => {})
-  }, [])
+    void refreshCurrentLanguage()
+  }, [refreshCurrentLanguage])
+
+  useEffect(() => {
+    if (user?.language === 'en' || user?.language === 'zh') {
+      setLanguageState(user.language)
+      return
+    }
+    if (!authenticated) {
+      void refreshCurrentLanguage()
+    }
+  }, [authenticated, user?.language, refreshCurrentLanguage])
 
   const setLanguage = useCallback(async (lang: Language) => {
     const res = await fetch(`/language/set?lang=${lang}`, { credentials: 'include' })

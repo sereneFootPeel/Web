@@ -108,6 +108,10 @@ export function YearRuler({ className = '', year, onYearChange, onYearSelect, sc
     }
 
     updateEdgePadding()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateEdgePadding)
+      return () => window.removeEventListener('resize', updateEdgePadding)
+    }
     const ro = new ResizeObserver(() => updateEdgePadding())
     ro.observe(el)
     return () => ro.disconnect()

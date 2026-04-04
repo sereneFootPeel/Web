@@ -268,6 +268,12 @@ export function HistoryCardsPanel({
     }
 
     updateBottomSpacer()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateBottomSpacer)
+      return () => {
+        window.removeEventListener('resize', updateBottomSpacer)
+      }
+    }
     const resizeObserver = new ResizeObserver(() => updateBottomSpacer())
     resizeObserver.observe(scroller)
     if (listRef.current) {

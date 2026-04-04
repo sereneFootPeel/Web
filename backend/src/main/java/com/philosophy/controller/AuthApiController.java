@@ -5,9 +5,9 @@ import com.philosophy.service.UserService;
 import com.philosophy.service.VerificationCodeService;
 import com.philosophy.service.EmailService;
 import com.philosophy.service.RateLimitingService;
+import com.philosophy.util.LanguageUtil;
 import org.springframework.http.ResponseEntity;
 
-import java.util.Collections;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
@@ -16,7 +16,9 @@ import org.springframework.security.web.context.HttpSessionSecurityContextReposi
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.Cookie;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -29,17 +31,20 @@ public class AuthApiController {
     private final VerificationCodeService verificationCodeService;
     private final EmailService emailService;
     private final RateLimitingService rateLimitingService;
+    private final LanguageUtil languageUtil;
 
     public AuthApiController(org.springframework.security.authentication.AuthenticationManager authenticationManager,
                              UserService userService,
                              VerificationCodeService verificationCodeService,
                              EmailService emailService,
-                             RateLimitingService rateLimitingService) {
+                             RateLimitingService rateLimitingService,
+                             LanguageUtil languageUtil) {
         this.authenticationManager = authenticationManager;
         this.userService = userService;
         this.verificationCodeService = verificationCodeService;
         this.emailService = emailService;
         this.rateLimitingService = rateLimitingService;
+        this.languageUtil = languageUtil;
     }
 
     @PostMapping("/send-code")
@@ -89,7 +94,9 @@ public class AuthApiController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<Map<String, Object>> login(@RequestBody Map<String, String> body, HttpServletRequest request) {
+    public ResponseEntity<Map<String, Object>> login(@RequestBody Map<String, String> body,
+                                                     HttpServletRequest request,
+                                                     HttpServletResponse response) {
         String username = body.get("username");
         String password = body.get("password");
         Map<String, Object> res = new HashMap<>();
@@ -111,6 +118,7 @@ public class AuthApiController {
             session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
 
             User user = userService.findByUsername(username);
+            syncLanguagePreference(user, request, response);
             res.put("success", true);
             res.put("user", toUserDto(user));
             return ResponseEntity.ok(res);
@@ -122,7 +130,9 @@ public class AuthApiController {
     }
 
     @GetMapping("/me")
-    public ResponseEntity<Map<String, Object>> me(Authentication auth) {
+    public ResponseEntity<Map<String, Object>> me(Authentication auth,
+                                                  HttpServletRequest request,
+                                                  HttpServletResponse response) {
         Map<String, Object> res = new HashMap<>();
         if (auth == null || !auth.isAuthenticated() || auth.getPrincipal() == null) {
             res.put("authenticated", false);
@@ -134,6 +144,7 @@ public class AuthApiController {
             res.put("authenticated", false);
             return ResponseEntity.ok(res);
         }
+        syncLanguagePreference(user, request, response);
         res.put("authenticated", true);
         res.put("user", toUserDto(user));
         return ResponseEntity.ok(res);
@@ -149,7 +160,9 @@ public class AuthApiController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<Map<String, Object>> register(@RequestBody Map<String, String> body) {
+    public ResponseEntity<Map<String, Object>> register(@RequestBody Map<String, String> body,
+                                                        HttpServletRequest request,
+                                                        HttpServletResponse response) {
         Map<String, Object> res = new HashMap<>();
         String username = body.get("username");
         String email = body.get("email");
@@ -200,10 +213,32 @@ public class AuthApiController {
         user.setPassword(password);
         user.setRole("USER");
         User saved = userService.registerNewUser(user);
+        syncLanguagePreference(saved, request, response);
         res.put("success", true);
         res.put("message", "注册成功");
         res.put("user", toUserDto(saved));
         return ResponseEntity.ok(res);
+    }
+
+    private void syncLanguagePreference(User user,
+                                        HttpServletRequest request,
+                                        HttpServletResponse response) {
+        if (user == null || request == null || response == null) {
+            return;
+        }
+        String language = user.getLanguage();
+        if (!"en".equals(language) && !"zh".equals(language)) {
+            language = languageUtil.getLanguage(request);
+            user.setLanguage(language);
+            userService.updateUser(user);
+        }
+        HttpSession session = request.getSession(true);
+        session.setAttribute("language", language);
+
+        Cookie languageCookie = new Cookie("philosophy_language", language);
+        languageCookie.setPath("/");
+        languageCookie.setMaxAge(30 * 24 * 60 * 60);
+        response.addCookie(languageCookie);
     }
 
     private Map<String, Object> toUserDto(User u) {
@@ -215,6 +250,7 @@ public class AuthApiController {
         dto.put("role", u.getRole());
         dto.put("firstName", u.getFirstName());
         dto.put("lastName", u.getLastName());
+        dto.put("language", u.getLanguage());
         dto.put("theme", u.getTheme());
         return dto;
     }

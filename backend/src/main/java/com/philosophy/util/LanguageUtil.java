@@ -1,5 +1,7 @@
 package com.philosophy.util;
 
+import com.philosophy.model.User;
+import com.philosophy.service.UserService;
 import com.philosophy.service.IpLocationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
@@ -17,9 +19,11 @@ public class LanguageUtil {
     private static final Logger logger = LoggerFactory.getLogger(LanguageUtil.class);
     
     private final IpLocationService ipLocationService;
+    private final UserService userService;
     
-    public LanguageUtil(IpLocationService ipLocationService) {
+    public LanguageUtil(IpLocationService ipLocationService, UserService userService) {
         this.ipLocationService = ipLocationService;
+        this.userService = userService;
     }
     
     /**
@@ -42,6 +46,20 @@ public class LanguageUtil {
         // 如果Session中已有语言设置，直接返回
         if (language != null && !language.trim().isEmpty()) {
             return language;
+        }
+
+        // Session 中没有时，优先使用已登录用户保存到数据库的语言偏好
+        try {
+            if (request.getUserPrincipal() != null && request.getUserPrincipal().getName() != null) {
+                User user = userService.findByUsername(request.getUserPrincipal().getName());
+                if (user != null && user.getLanguage() != null && !user.getLanguage().trim().isEmpty()) {
+                    language = user.getLanguage();
+                    session.setAttribute("language", language);
+                    return language;
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("从数据库读取用户语言偏好失败，继续按IP推断默认语言", e);
         }
         
         // Session中没有语言设置，根据IP地址判断
