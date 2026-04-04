@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useAuth } from '../contexts/AuthContext'
+import { MBTI_DIMENSIONS, getMbtiPolesLabel, getMbtiTypeDescription, type SupportedLanguage } from '../utils/mbti'
 
 type TestId = 'mmpi' | 'mbti' | 'enneagram' | 'bigfive' | 'values8'
 
@@ -16,6 +17,7 @@ type EnneagramQuestion = QuestionBase & { type: number }
 type Values8Question = QuestionBase & { effect: { econ: number; dipl: number; govt: number; scty: number } }
 type BigFiveKey = { dimension: 'N' | 'E' | 'O' | 'A' | 'C'; reverse: boolean }
 type MmpiKey = { key: 0 | 1; scales: string[] }
+type Values8Axis = 'econ' | 'dipl' | 'govt' | 'scty'
 
 const TEST_MAP: Record<TestId, TestConfig> = {
   mmpi: { titleZh: 'MMPI', titleEn: 'MMPI' },
@@ -23,6 +25,79 @@ const TEST_MAP: Record<TestId, TestConfig> = {
   enneagram: { titleZh: '九型人格', titleEn: 'Enneagram' },
   bigfive: { titleZh: '大五人格', titleEn: 'Big Five' },
   values8: { titleZh: '8values', titleEn: '8values' },
+}
+
+const ENNEAGRAM_TYPE_NAMES: Record<SupportedLanguage, Record<number, string>> = {
+  zh: {
+    1: '完美型', 2: '助人型', 3: '成就型', 4: '自我型', 5: '理智型', 6: '忠诚型', 7: '活跃型', 8: '领袖型', 9: '和平型',
+  },
+  en: {
+    1: 'Perfectionist', 2: 'Helper', 3: 'Achiever', 4: 'Individualist', 5: 'Investigator', 6: 'Loyalist', 7: 'Enthusiast', 8: 'Challenger', 9: 'Peacemaker',
+  },
+}
+
+const ENNEAGRAM_TYPE_DESCRIPTIONS: Record<SupportedLanguage, Record<number, string>> = {
+  zh: {
+    1: '讲原则、求完美，对自己和他人要求高，是非分明。',
+    2: '乐于付出、善解人意，重视关系，渴望被需要。',
+    3: '目标明确、追求成功与认可，效率高，重视形象。',
+    4: '感性、追求独特与深度，情绪丰富，渴望被理解。',
+    5: '理性、喜欢独处与思考，重视隐私与知识。',
+    6: '谨慎、忠诚，重视安全与承诺，容易担心。',
+    7: '乐观、爱玩，喜欢新鲜与自由，避免沉重。',
+    8: '强势、直接，重视公平与力量，保护欲强。',
+    9: '温和、随和，追求和谐，不愿冲突。',
+  },
+  en: {
+    1: 'Principled, perfectionistic, high standards for self and others.',
+    2: 'Caring, supportive, values relationships, wants to be needed.',
+    3: 'Goal-oriented, seeks success and recognition, efficient.',
+    4: 'Emotional, seeks uniqueness and depth, creative.',
+    5: 'Analytical, values privacy and knowledge, observant.',
+    6: 'Loyal, security-oriented, cautious, committed.',
+    7: 'Optimistic, fun-loving, seeks variety and freedom.',
+    8: 'Assertive, direct, values justice and strength.',
+    9: 'Easygoing, peace-seeking, avoids conflict.',
+  },
+}
+
+const VALUES8_LABELS: Record<SupportedLanguage, Record<Values8Axis, [string, string]>> = {
+  zh: {
+    econ: ['平等', '市场'],
+    dipl: ['民族', '全球'],
+    govt: ['自由', '权威'],
+    scty: ['传统', '进步'],
+  },
+  en: {
+    econ: ['Equality', 'Markets'],
+    dipl: ['Nation', 'World'],
+    govt: ['Liberty', 'Authority'],
+    scty: ['Tradition', 'Progress'],
+  },
+}
+
+const BIG_FIVE_CODES: Array<'N' | 'E' | 'O' | 'A' | 'C'> = ['N', 'E', 'O', 'A', 'C']
+const BIG_FIVE_DIMENSION_NAMES: Record<SupportedLanguage, Record<'N' | 'E' | 'O' | 'A' | 'C', string>> = {
+  zh: { N: '神经质', E: '外倾性', O: '开放性', A: '宜人性', C: '严谨性' },
+  en: { N: 'Neuroticism', E: 'Extraversion', O: 'Openness', A: 'Agreeableness', C: 'Conscientiousness' },
+}
+
+const MMPI_SCALE_ORDER = ['Q', 'L', 'F', 'K', 'Hs', 'D', 'Hy', 'Pd', 'Mf', 'Pa', 'Pt', 'Sc', 'Ma', 'Si', 'MAS', 'Dy', 'Do', 'Re', 'Cn']
+const MMPI_SCALE_NAMES: Record<SupportedLanguage, Record<string, string>> = {
+  zh: {
+    Q: '疑问', L: '说谎', F: '诈病', K: '校正', Hs: '疑病', D: '抑郁', Hy: '癔症', Pd: '病态人格',
+    Mf: '男性化-女性化', 'Mf-m': '男子气', 'Mf-f': '女子气', Pa: '妄想', Pt: '精神衰弱', Sc: '精神分裂', Ma: '轻躁狂', Si: '社会内倾',
+    MAS: '焦虑', Dy: '依赖', Do: '支配', Re: '责任', Cn: '控制',
+  },
+  en: {
+    Q: 'Cannot say', L: 'Lie', F: 'Infrequency', K: 'Correction', Hs: 'Hypochondriasis', D: 'Depression', Hy: 'Hysteria', Pd: 'Psychopathic deviate',
+    Mf: 'Masculinity-Femininity', 'Mf-m': 'Masc.', 'Mf-f': 'Fem.', Pa: 'Paranoia', Pt: 'Psychasthenia', Sc: 'Schizophrenia', Ma: 'Hypomania', Si: 'Social introversion',
+    MAS: 'Anxiety', Dy: 'Dependency', Do: 'Dominance', Re: 'Responsibility', Cn: 'Control',
+  },
+}
+
+function round1(value: number) {
+  return Math.round(value * 10) / 10
 }
 
 export function TestHost() {
@@ -50,6 +125,7 @@ export function TestHost() {
   }, [testId])
 
   const draftKey = `${DRAFT_PREFIX}${testId ?? 'unknown'}`
+  const uiLanguage: SupportedLanguage = language === 'en' ? 'en' : 'zh'
 
   useEffect(() => {
     if (!testId || !testConfig) return
@@ -160,9 +236,41 @@ export function TestHost() {
         else scores[q.scoreB] += weight
       }
       const type = `${scores.E >= scores.I ? 'E' : 'I'}${scores.S >= scores.N ? 'S' : 'N'}${scores.T >= scores.F ? 'T' : 'F'}${scores.J >= scores.P ? 'J' : 'P'}`
+      const description = getMbtiTypeDescription(type, uiLanguage)
       setResultNode(
-        <div className="space-y-4">
-          <p className="text-lg">{t('你的类型', 'Your type')}: <strong>{type}</strong></p>
+        <div className="space-y-6">
+          <div className="p-4 rounded-lg border-2" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-tertiary)' }}>
+            <p className="text-2xl font-bold tracking-[0.2em]" style={{ color: 'var(--text-primary)' }}>{type}</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                  <th className="text-left py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('维度', 'Dimension')}</th>
+                  <th className="text-left py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('两极', 'Poles')}</th>
+                  <th className="text-right py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('得分', 'Score')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MBTI_DIMENSIONS.map((item) => (
+                  <tr key={item.dimension} style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                    <td className="py-2 px-2 font-medium" style={{ color: 'var(--text-primary)' }}>{item.dimension}</td>
+                    <td className="py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{getMbtiPolesLabel(item, uiLanguage)}</td>
+                    <td className="py-2 px-2 text-right" style={{ color: 'var(--text-secondary)' }}>
+                      {item.leftCode}: {scores[item.leftCode] ?? 0} &nbsp; {item.rightCode}: {scores[item.rightCode] ?? 0}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {description && (
+            <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              {description}
+            </p>
+          )}
         </div>,
       )
       await postResultIfNeeded('mbti', type, { type, scores })
@@ -173,16 +281,60 @@ export function TestHost() {
         const val = answers[String(q.id)]
         if (val != null) scores[q.type] += val
       }
-      const top = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0]
+      const typeNames = ENNEAGRAM_TYPE_NAMES[uiLanguage]
+      const typeDescriptions = ENNEAGRAM_TYPE_DESCRIPTIONS[uiLanguage]
+      const ordered = Object.entries(scores).sort((a, b) => {
+        if (b[1] !== a[1]) return b[1] - a[1]
+        return Number(a[0]) - Number(b[0])
+      })
+      const top = Number(ordered[0]?.[0] ?? 0)
+      const topName = typeNames[top] ?? ''
+      const topSummary = uiLanguage === 'en' ? `Type ${top} ${topName}` : `第${top}型 ${topName}`
       setResultNode(
-        <div className="space-y-4">
-          <p className="text-lg">{t('主类型', 'Main type')}: <strong>{top}</strong></p>
+        <div className="space-y-6">
+          <div className="p-4 rounded-lg border-2" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-tertiary)' }}>
+            <p className="text-sm mb-1" style={{ color: 'var(--text-tertiary)' }}>{t('主类型', 'Main type')}</p>
+            <p className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{topSummary}</p>
+            {typeDescriptions[top] && (
+              <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{typeDescriptions[top]}</p>
+            )}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                  <th className="text-left py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('类型', 'Type')}</th>
+                  <th className="text-left py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('名称', 'Name')}</th>
+                  <th className="text-right py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('得分', 'Score')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((item) => (
+                  <tr key={item} style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                    <td className="py-2 px-2 font-medium" style={{ color: 'var(--text-primary)' }}>{item}</td>
+                    <td className="py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{typeNames[item] ?? ''}</td>
+                    <td className="py-2 px-2 text-right" style={{ color: 'var(--text-secondary)' }}>{scores[item] ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="space-y-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+            <p className="font-medium" style={{ color: 'var(--text-tertiary)' }}>{t('各类型简要说明', 'Brief descriptions of all types')}</p>
+            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((item) => (
+              <p key={item}>
+                <strong>{item} {typeNames[item] ?? ''}</strong>：{typeDescriptions[item] ?? ''}
+              </p>
+            ))}
+          </div>
         </div>,
       )
-      await postResultIfNeeded('enneagram', `${t('第', 'Type ')}${top}${t('型', '')}`, { scores, mainType: Number(top) })
+      await postResultIfNeeded('enneagram', topSummary, { scores, mainType: top, mainName: topName, typeNames })
     } else if (testId === 'values8') {
       const rows = questions as Values8Question[]
-      const axes: Array<'econ' | 'dipl' | 'govt' | 'scty'> = ['econ', 'dipl', 'govt', 'scty']
+      const axes: Values8Axis[] = ['econ', 'dipl', 'govt', 'scty']
       const totals: Record<string, number> = { econ: 0, dipl: 0, govt: 0, scty: 0 }
       const maxes: Record<string, number> = { econ: 0, dipl: 0, govt: 0, scty: 0 }
       for (const q of rows) {
@@ -198,15 +350,43 @@ export function TestHost() {
         return Math.round((100 * (max + totals[axis]) / (2 * max)) * 10) / 10
       }
       const result = { econ: pct('econ'), dipl: pct('dipl'), govt: pct('govt'), scty: pct('scty') }
+      const labels = VALUES8_LABELS[uiLanguage]
+      const leftPercentByAxis: Record<Values8Axis, number> = {
+        econ: result.econ,
+        dipl: round1(100 - result.dipl),
+        govt: result.govt,
+        scty: round1(100 - result.scty),
+      }
       setResultNode(
-        <div className="space-y-2">
-          <p>Equality: {result.econ}%</p>
-          <p>World: {result.dipl}%</p>
-          <p>Liberty: {result.govt}%</p>
-          <p>Progress: {result.scty}%</p>
+        <div className="space-y-6">
+          <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
+            {t('每条对立轴两端加总为 100%，显示你在该价值轴上的倾向。', 'Each opposing axis sums to 100%, showing where you land on that value scale.')}
+          </p>
+          {axes.map((axis) => {
+            const [leftLabel, rightLabel] = labels[axis]
+            const leftPercent = leftPercentByAxis[axis]
+            const rightPercent = round1(100 - leftPercent)
+
+            return (
+              <div key={axis} className="space-y-2">
+                <div className="flex justify-between text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                  <span>{leftLabel}</span>
+                  <span>{rightLabel}</span>
+                </div>
+                <div className="h-3 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--border-primary)' }}>
+                  <div className="h-full rounded-full" style={{ width: `${leftPercent}%`, backgroundColor: 'var(--color-primary)' }} />
+                </div>
+                <div className="flex justify-between text-sm" style={{ color: 'var(--text-secondary)' }}>
+                  <span>{leftLabel} {leftPercent}%</span>
+                  <span>{rightPercent}% {rightLabel}</span>
+                </div>
+              </div>
+            )
+          })}
         </div>,
       )
-      await postResultIfNeeded('values8', `E${result.econ} D${result.dipl} G${result.govt} S${result.scty}`, { scores: result })
+      const summary = axes.map((axis) => `${labels[axis][0]}${leftPercentByAxis[axis]}%`).join(' ')
+      await postResultIfNeeded('values8', summary, { scores: result, labels })
     } else if (testId === 'bigfive') {
       const keyData = await loadJson<{ items: Record<string, BigFiveKey> }>('/data/bigfive_scoring_key.json')
       const norms = await loadJson<{ norms: Record<'M' | 'F', { mean: Record<string, number>; sd: Record<string, number> }> }>('/data/bigfive_norms.json')
@@ -226,22 +406,42 @@ export function TestHost() {
         return Math.round((50 + 10 * ((raw[d] - mean) / sd)) * 10) / 10
       }
       const ts = { N: tScore('N'), E: tScore('E'), O: tScore('O'), A: tScore('A'), C: tScore('C') }
+      const dimensionNames = BIG_FIVE_DIMENSION_NAMES[uiLanguage]
       setResultNode(
-        <div className="space-y-2">
-          <p>N: {raw.N} / T {ts.N ?? '-'}</p>
-          <p>E: {raw.E} / T {ts.E ?? '-'}</p>
-          <p>O: {raw.O} / T {ts.O ?? '-'}</p>
-          <p>A: {raw.A} / T {ts.A ?? '-'}</p>
-          <p>C: {raw.C} / T {ts.C ?? '-'}</p>
+        <div className="space-y-4">
+          <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
+            {t('T 分按常模换算：T = 50 + 10×(原始分−均值)/标准差，仅供参考。', 'T-scores are computed from norms: T = 50 + 10×(raw−mean)/sd. For reference only.')}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                  <th className="text-left py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('维度代码', 'Code')}</th>
+                  <th className="text-left py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('维度', 'Dimension')}</th>
+                  <th className="text-right py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('原始分', 'Raw')}</th>
+                  <th className="text-right py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('T 分', 'T')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {BIG_FIVE_CODES.map((code) => (
+                  <tr key={code} style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                    <td className="py-2 px-2 font-medium" style={{ color: 'var(--text-primary)' }}>{code}</td>
+                    <td className="py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{dimensionNames[code]}</td>
+                    <td className="py-2 px-2 text-right" style={{ color: 'var(--text-secondary)' }}>{raw[code]}</td>
+                    <td className="py-2 px-2 text-right" style={{ color: 'var(--text-secondary)' }}>{ts[code] ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>,
       )
       await postResultIfNeeded('bigfive', `N${ts.N} E${ts.E} O${ts.O} A${ts.A} C${ts.C}`, { raw, t: ts })
     } else if (testId === 'mmpi') {
       const keyData = await loadJson<{ items: Record<string, MmpiKey> }>('/data/mmpi_scoring_key.json')
       const norms = await loadJson<{ norms: Record<'M' | 'F', Record<'16-25' | '26-35' | '36-45' | '46-55', { mean: Record<string, number>; sd: Record<string, number> }>> }>('/data/mmpi_norms.json')
-      const scalesOrder = ['Q', 'L', 'F', 'K', 'Hs', 'D', 'Hy', 'Pd', 'Mf', 'Pa', 'Pt', 'Sc', 'Ma', 'Si', 'MAS', 'Dy', 'Do', 'Re', 'Cn']
       const raw: Record<string, number> = {}
-      for (const code of scalesOrder) raw[code] = 0
+      for (const code of MMPI_SCALE_ORDER) raw[code] = 0
       for (const q of questions) {
         const k = keyData.items[String(q.id)]
         const a = answers[String(q.id)]
@@ -255,16 +455,48 @@ export function TestHost() {
       raw.Mf = mmpiGender === 'M' ? (raw['Mf-m'] || 0) : (raw['Mf-f'] || 0)
       const norm = norms.norms[mmpiGender][mmpiAge]
       const tscore: Record<string, number | null> = {}
-      for (const code of scalesOrder) {
+      for (const code of MMPI_SCALE_ORDER) {
         const mean = norm.mean[code]
         const sd = norm.sd[code]
         tscore[code] = sd ? Math.round((50 + 10 * ((raw[code] - mean) / sd)) * 10) / 10 : null
       }
+      const qThreshold = questions.length === 399 ? 22 : questions.length === 566 ? 30 : null
+      const validityHint = qThreshold !== null && (raw.Q || 0) > qThreshold
+        ? (uiLanguage === 'en'
+          ? `Warning: Cannot say (Q) = ${raw.Q || 0} exceeds threshold (${qThreshold}). Results may be invalid.`
+          : `提示：无法回答（Q）=${raw.Q || 0} 超过阈值（${qThreshold}），结果可能不可靠。`)
+        : ''
+      const scaleNames = MMPI_SCALE_NAMES[uiLanguage]
       setResultNode(
-        <div className="space-y-2">
-          {scalesOrder.map((code) => (
-            <p key={code}>{code}: {raw[code]} / T {tscore[code] ?? '-'}</p>
-          ))}
+        <div className="space-y-4">
+          <p className="text-sm" style={{ color: 'var(--text-tertiary)' }}>
+            {t('此处 T 分按常模表计算：T = 50 + 10×(原始分−均值)/标准差，仅供参考。', 'T-scores here are computed from norms: T = 50 + 10×(raw−mean)/sd. For reference only.')}
+          </p>
+          {validityHint && (
+            <p className="text-sm" style={{ color: '#b45309' }}>{validityHint}</p>
+          )}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                  <th className="text-left py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('量表', 'Scale')}</th>
+                  <th className="text-left py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('名称', 'Name')}</th>
+                  <th className="text-right py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('原始分', 'Raw')}</th>
+                  <th className="text-right py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{t('T 分', 'T')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {MMPI_SCALE_ORDER.map((code) => (
+                  <tr key={code} style={{ borderBottom: '1px solid var(--border-primary)' }}>
+                    <td className="py-2 px-2 font-medium" style={{ color: 'var(--text-primary)' }}>{code}</td>
+                    <td className="py-2 px-2" style={{ color: 'var(--text-secondary)' }}>{scaleNames[code] || code}</td>
+                    <td className="py-2 px-2 text-right" style={{ color: 'var(--text-secondary)' }}>{raw[code] || 0}</td>
+                    <td className="py-2 px-2 text-right" style={{ color: 'var(--text-secondary)' }}>{tscore[code] ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>,
       )
       await postResultIfNeeded('mmpi', `L${tscore.L} F${tscore.F} K${tscore.K}`, { raw, t: tscore, count: testCount })

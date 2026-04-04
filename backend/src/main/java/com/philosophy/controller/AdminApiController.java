@@ -561,8 +561,15 @@ public class AdminApiController {
     @PostMapping("/data-import/clear-all")
     public ResponseEntity<Map<String, Object>> clearAllData(Authentication auth) {
         requireAdmin(auth);
+        Map<String, Long> before = dataImportService.collectClearDataSummary();
         dataImportService.clearAllDataSafely();
-        return ResponseEntity.ok(Map.of("success", true, "message", "数据已清空"));
+        Map<String, Long> after = dataImportService.collectClearDataSummary();
+        return ResponseEntity.ok(Map.of(
+            "success", true,
+            "message", "数据库数据已清空",
+            "before", before,
+            "after", after
+        ));
     }
 
     @GetMapping("/data-export/download")

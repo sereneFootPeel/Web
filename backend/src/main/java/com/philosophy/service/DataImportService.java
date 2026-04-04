@@ -73,6 +73,16 @@ public class DataImportService {
     private PhilosopherTranslationRepository philosopherTranslationRepository;
 
     @Autowired
+    private HistoryCountryRepository historyCountryRepository;
+
+    @Autowired
+    private HistoryEventRepository historyEventRepository;
+
+    @Autowired
+    private HistoryPhilosophyBucketCacheRepository historyPhilosophyBucketCacheRepository;
+
+
+    @Autowired
     private UserFollowRepository userFollowRepository;
 
     @PersistenceContext
@@ -82,6 +92,7 @@ public class DataImportService {
     private TransactionTemplate transactionTemplate;
 
     private final ConcurrentMap<String, Boolean> columnExistenceCache = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Boolean> tableExistenceCache = new ConcurrentHashMap<>();
     private final Set<String> missingColumnWarnings = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<Long, Long> pendingUserSchoolAssignments = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Long> symbolicContentIdCache = new ConcurrentHashMap<>();
@@ -96,10 +107,38 @@ public class DataImportService {
     );
     private static final Pattern ANY_NUMBER_PATTERN = Pattern.compile("(\\d+)");
     private static final int USER_SECTION_MIN_COLUMNS = 26;
-    private static final int SCHOOL_SECTION_MIN_COLUMNS = 10;
+    private static final int SCHOOL_SECTION_MIN_COLUMNS = 11;
     private static final int PHILOSOPHER_SECTION_MIN_COLUMNS = 14;
+    private static final List<String> CLEAR_ALL_TARGET_TABLES = List.of(
+            "user_login_info",
+            "history_philosophy_bucket_cache",
+            "history_event",
+            "history_country",
+            "user_blocks",
+            "user_content_edits",
+            "likes",
+            "user_follows",
+            "comments",
+            "contents_translation",
+            "philosophers_translation",
+            "schools_translation",
+            "philosopher_school",
+            "contents",
+            "philosophers",
+            "schools",
+            "users"
+    );
     private static final Set<String> TRUE_STRING_VALUES = Set.of("1", "true", "yes", "y", "t", "on", "是", "私密", "屏蔽");
     private static final Set<String> FALSE_STRING_VALUES = Set.of("0", "false", "no", "n", "f", "off", "否", "公开");
+    private static final String[] HISTORY_SCHOOL_ZH_KEYWORDS = {
+            "经济", "政治经济", "古典经济", "新古典", "凯恩斯", "货币主义", "奥地利学派", "制度经济", "行为经济", "公共选择",
+            "重商主义", "功利主义", "自由主义", "马克思主义", "社会主义"
+    };
+    private static final String[] HISTORY_SCHOOL_EN_KEYWORDS = {
+            "econom", "political economy", "classical econom", "neo class", "neoclass", "keynes", "monetar", "austrian",
+            "institutional", "behavioral econom", "behavioural econom", "public choice", "mercantil", "utilitarian",
+            "liberalism", "marxism", "socialism"
+    };
 
     public ImportResult importCsvData(MultipartFile file) {
         return importCsvData(file, false);
@@ -251,6 +290,18 @@ public class DataImportService {
             }
             importPhilosopherTranslationsInTransaction(result, philosopherTranslationData);
 
+            List<String[]> historyCountryData = dataSections.get("历史国家数据");
+            if (historyCountryData == null) {
+                historyCountryData = findSectionByKeywords(dataSections, "历史", "国家", "数据");
+            }
+            importHistoryCountriesInTransaction(result, historyCountryData);
+
+            List<String[]> historyEventData = dataSections.get("历史事件数据");
+            if (historyEventData == null) {
+                historyEventData = findSectionByKeywords(dataSections, "历史", "事件", "数据");
+            }
+            importHistoryEventsInTransaction(result, historyEventData);
+
             // 即使有部分失败，只要不是全部失败，就认为导入成功
             if (result.getTotalImported() > 0) {
                 result.setSuccess(true);
@@ -308,95 +359,272 @@ public class DataImportService {
      */
     public void clearAllDataSafely() {
         logger.info("开始安全清空所有数据表...");
-        
+
+        tableExistenceCache.clear();
+        Set<String> existingTables = resolveExistingTablesForClearOperation();
+
         transactionTemplate.execute(status -> {
+            boolean foreignKeyChecksDisabled = false;
+            RuntimeException transactionFailure = null;
             try {
                 // 禁用外键检查以避免约束问题
                 entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 0").executeUpdate();
+                foreignKeyChecksDisabled = true;
                 logger.info("已禁用外键检查");
-                
+
                 // 使用原生SQL按正确顺序删除，避免外键约束问题
-                clearTablesInOrder();
-                
-                // 重新启用外键检查
-                entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
-                logger.info("已重新启用外键检查");
-                
-                logger.info("所有数据表清空完成");
+                clearTablesInOrder(existingTables);
                 return null;
-                
+
             } catch (Exception e) {
+                transactionFailure = new RuntimeException("清空数据失败: " + e.getMessage(), e);
                 logger.error("清空数据时发生错误", e);
-                try {
-                    entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
-                    logger.info("已重新启用外键检查");
-                } catch (Exception ex) {
-                    logger.error("重新启用外键检查失败", ex);
+                throw transactionFailure;
+            } finally {
+                if (foreignKeyChecksDisabled) {
+                    try {
+                        entityManager.createNativeQuery("SET FOREIGN_KEY_CHECKS = 1").executeUpdate();
+                        logger.info("已重新启用外键检查");
+                    } catch (Exception ex) {
+                        logger.error("重新启用外键检查失败", ex);
+                        if (transactionFailure != null) {
+                            transactionFailure.addSuppressed(ex);
+                        } else {
+                            throw new RuntimeException("重新启用外键检查失败: " + ex.getMessage(), ex);
+                        }
+                    }
                 }
-                throw new RuntimeException("清空数据失败: " + e.getMessage(), e);
             }
         });
+
+        Map<String, Long> remaining = collectStrictClearDataSummary(existingTables);
+        verifyClearDataSummaryIsEmpty(remaining);
+        logger.info("所有数据表清空完成，且已通过残留数据校验");
     }
 
     /**
      * 按顺序清空所有表
      */
-    private void clearTablesInOrder() {
+    private Set<String> resolveExistingTablesForClearOperation() {
+        Set<String> existingTables = new LinkedHashSet<>();
+        for (String tableName : CLEAR_ALL_TARGET_TABLES) {
+            if (tableExists(tableName)) {
+                existingTables.add(tableName);
+            }
+        }
+        return existingTables;
+    }
+
+    private void clearTablesInOrder(Set<String> existingTables) {
+        clearHistoryTablesStrictly(existingTables);
+
         // 1. 删除所有依赖表（没有外键约束的表）
-        safeDeleteTable("user_login_info", "用户登录信息表");
-        safeDeleteTable("user_blocks", "用户屏蔽表");
-        safeDeleteTable("user_content_edits", "用户内容编辑表");
-        safeDeleteTable("likes", "点赞表");
+        safeDeleteTable(existingTables, "user_login_info", "用户登录信息表");
+        safeDeleteTable(existingTables, "user_blocks", "用户屏蔽表");
+        safeDeleteTable(existingTables, "user_content_edits", "用户内容编辑表");
+        safeDeleteTable(existingTables, "likes", "点赞表");
         
         // 2. 删除用户关注表（依赖用户表）
-        safeDeleteTable("user_follows", "用户关注表");
+        safeDeleteTable(existingTables, "user_follows", "用户关注表");
         
         // 3. 删除评论表（依赖用户和内容表）
-        safeDeleteTable("comments", "评论表");
+        safeDeleteTable(existingTables, "comments", "评论表");
         
         // 4. 删除翻译表
-        safeDeleteTable("contents_translation", "内容翻译表");
-        safeDeleteTable("philosophers_translation", "哲学家翻译表");
-        safeDeleteTable("schools_translation", "学派翻译表");
+        safeDeleteTable(existingTables, "contents_translation", "内容翻译表");
+        safeDeleteTable(existingTables, "philosophers_translation", "哲学家翻译表");
+        safeDeleteTable(existingTables, "schools_translation", "学派翻译表");
         
             // 5. 删除哲学家-学派关联表
-            safeDeleteTable("philosopher_school", "哲学家-学派关联表");
+            safeDeleteTable(existingTables, "philosopher_school", "哲学家-学派关联表");
             
             // 6. 删除内容表（有外键约束）
-            safeDeleteTable("contents", "内容表");
+            safeDeleteTable(existingTables, "contents", "内容表");
         
         // 8. 删除哲学家表
-        safeDeleteTable("philosophers", "哲学家表");
+        safeDeleteTable(existingTables, "philosophers", "哲学家表");
         
         // 9. 删除学派表
-        safeDeleteTable("schools", "学派表");
+        safeDeleteTable(existingTables, "schools", "学派表");
         
         // 10. 删除非管理员用户（保留 ADMIN 角色账户）
-        safeDeleteNonAdminUsers();
+        safeDeleteNonAdminUsers(existingTables);
     }
 
     /**
      * 删除非管理员用户，保留 ADMIN 角色账户以便后续登录
      */
-    private void safeDeleteNonAdminUsers() {
+    private void safeDeleteNonAdminUsers(Set<String> existingTables) {
+        if (!existingTables.contains("users")) {
+            logger.info("跳过清空用户表：users 表不存在");
+            return;
+        }
+        int deleted = entityManager.createNativeQuery("DELETE FROM users WHERE role != 'ADMIN'").executeUpdate();
+        logger.info("清空用户表（保留管理员账户），已删除 {} 个非管理员用户", deleted);
+    }
+
+    private void clearHistoryTablesStrictly(Set<String> existingTables) {
+        logger.info("开始严格清空历史相关表...");
+
+        safeDeleteTable(existingTables, "history_philosophy_bucket_cache", "历史哲学时间桶缓存表");
+        safeDeleteTable(existingTables, "history_event", "历史事件表");
+        safeDeleteTable(existingTables, "history_country", "历史国家表");
+
+        entityManager.flush();
+        entityManager.clear();
+
+        logger.info("历史相关表删除语句已执行完成");
+    }
+
+    public Map<String, Long> collectClearDataSummary() {
+        Map<String, Long> summary = new LinkedHashMap<>();
+        summary.put("user_login_info", countRowsLenient("user_login_info"));
+        summary.put("history_philosophy_bucket_cache", countRowsLenient("history_philosophy_bucket_cache"));
+        summary.put("history_event", countRowsLenient("history_event"));
+        summary.put("history_country", countRowsLenient("history_country"));
+        summary.put("user_blocks", countRowsLenient("user_blocks"));
+        summary.put("user_content_edits", countRowsLenient("user_content_edits"));
+        summary.put("likes", countRowsLenient("likes"));
+        summary.put("user_follows", countRowsLenient("user_follows"));
+        summary.put("comments", countRowsLenient("comments"));
+        summary.put("contents_translation", countRowsLenient("contents_translation"));
+        summary.put("philosophers_translation", countRowsLenient("philosophers_translation"));
+        summary.put("schools_translation", countRowsLenient("schools_translation"));
+        summary.put("philosopher_school", countRowsLenient("philosopher_school"));
+        summary.put("contents", countRowsLenient("contents"));
+        summary.put("philosophers", countRowsLenient("philosophers"));
+        summary.put("schools", countRowsLenient("schools"));
+        summary.put("non_admin_users", countQueryLenient("SELECT COUNT(*) FROM users WHERE role != 'ADMIN'", "non_admin_users"));
+        return summary;
+    }
+
+    private Map<String, Long> collectStrictClearDataSummary(Set<String> existingTables) {
+        Map<String, Long> summary = new LinkedHashMap<>();
+        summary.put("user_login_info", countRowsSafely(existingTables, "user_login_info"));
+        summary.put("history_philosophy_bucket_cache", countRowsSafely(existingTables, "history_philosophy_bucket_cache"));
+        summary.put("history_event", countRowsSafely(existingTables, "history_event"));
+        summary.put("history_country", countRowsSafely(existingTables, "history_country"));
+        summary.put("user_blocks", countRowsSafely(existingTables, "user_blocks"));
+        summary.put("user_content_edits", countRowsSafely(existingTables, "user_content_edits"));
+        summary.put("likes", countRowsSafely(existingTables, "likes"));
+        summary.put("user_follows", countRowsSafely(existingTables, "user_follows"));
+        summary.put("comments", countRowsSafely(existingTables, "comments"));
+        summary.put("contents_translation", countRowsSafely(existingTables, "contents_translation"));
+        summary.put("philosophers_translation", countRowsSafely(existingTables, "philosophers_translation"));
+        summary.put("schools_translation", countRowsSafely(existingTables, "schools_translation"));
+        summary.put("philosopher_school", countRowsSafely(existingTables, "philosopher_school"));
+        summary.put("contents", countRowsSafely(existingTables, "contents"));
+        summary.put("philosophers", countRowsSafely(existingTables, "philosophers"));
+        summary.put("schools", countRowsSafely(existingTables, "schools"));
+        summary.put("non_admin_users", countNonAdminUsersSafely(existingTables));
+        return summary;
+    }
+
+    private boolean tableExists(String tableName) {
+        if (tableName == null || tableName.isBlank()) {
+            return false;
+        }
+        Boolean cached = tableExistenceCache.get(tableName);
+        if (cached != null) {
+            return cached;
+        }
         try {
-            int deleted = entityManager.createNativeQuery("DELETE FROM users WHERE role != 'ADMIN'").executeUpdate();
-            logger.info("清空用户表（保留管理员账户），已删除 {} 个非管理员用户", deleted);
+            jakarta.persistence.Query query = entityManager.createNativeQuery(
+                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?");
+            query.setParameter(1, tableName);
+            Number count = (Number) query.getSingleResult();
+            boolean exists = count != null && count.longValue() > 0;
+            tableExistenceCache.put(tableName, exists);
+            return exists;
         } catch (Exception e) {
-            logger.warn("清空用户表失败: {}", e.getMessage());
+            throw new IllegalStateException("检测数据表存在性失败: " + tableName + ", " + e.getMessage(), e);
+        }
+    }
+
+    private long countNonAdminUsersSafely(Set<String> existingTables) {
+        if (!existingTables.contains("users")) {
+            return 0L;
+        }
+        try {
+            Number count = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM users WHERE role != 'ADMIN'").getSingleResult();
+            return count == null ? 0L : count.longValue();
+        } catch (Exception e) {
+            throw new IllegalStateException("校验非管理员用户数据量失败: " + e.getMessage(), e);
+        }
+    }
+
+    private long countRowsSafely(Set<String> existingTables, String tableName) {
+        if (existingTables == null || !existingTables.contains(tableName)) {
+            return 0L;
+        }
+        try {
+            Number count = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM " + tableName).getSingleResult();
+            return count == null ? 0L : count.longValue();
+        } catch (Exception e) {
+            throw new IllegalStateException("校验表数据量失败: " + tableName + ", " + e.getMessage(), e);
+        }
+    }
+
+    private void verifyClearDataSummaryIsEmpty(Map<String, Long> summary) {
+        if (summary == null || summary.isEmpty()) {
+            return;
+        }
+        Map<String, Long> remaining = new LinkedHashMap<>();
+        for (Map.Entry<String, Long> entry : summary.entrySet()) {
+            Long count = entry.getValue();
+            if (count != null && count > 0) {
+                remaining.put(entry.getKey(), count);
+            }
+        }
+        if (!remaining.isEmpty()) {
+            throw new IllegalStateException("以下数据表仍有残留数据: " + remaining);
+        }
+    }
+
+    private long countRowsSafely(String tableName) {
+        if (!tableExists(tableName)) {
+            return 0L;
+        }
+        try {
+            Number count = (Number) entityManager.createNativeQuery("SELECT COUNT(*) FROM " + tableName).getSingleResult();
+            return count == null ? 0L : count.longValue();
+        } catch (Exception e) {
+            throw new IllegalStateException("校验表数据量失败: " + tableName + ", " + e.getMessage(), e);
+        }
+    }
+
+    private long countRowsLenient(String tableName) {
+        try {
+            return countRowsSafely(tableName);
+        } catch (Exception e) {
+            logger.warn("统计表 {} 数据量失败，按 0 处理: {}", tableName, e.getMessage());
+            return 0L;
+        }
+    }
+
+    private long countQueryLenient(String sql, String label) {
+        try {
+            if ("non_admin_users".equals(label) && !tableExists("users")) {
+                return 0L;
+            }
+            Number count = (Number) entityManager.createNativeQuery(sql).getSingleResult();
+            return count == null ? 0L : count.longValue();
+        } catch (Exception e) {
+            logger.warn("统计 {} 数据量失败，按 0 处理: {}", label, e.getMessage());
+            return 0L;
         }
     }
 
     /**
      * 安全删除表，如果表不存在也不会报错
      */
-    private void safeDeleteTable(String tableName, String description) {
-        try {
-            entityManager.createNativeQuery("DELETE FROM " + tableName).executeUpdate();
-            logger.info("清空{}", description);
-        } catch (Exception e) {
-            logger.warn("清空{}失败，可能表不存在: {}", description, e.getMessage());
+    private void safeDeleteTable(Set<String> existingTables, String tableName, String description) {
+        if (existingTables == null || !existingTables.contains(tableName)) {
+            logger.info("跳过清空{}：表 {} 不存在", description, tableName);
+            return;
         }
+        entityManager.createNativeQuery("DELETE FROM " + tableName).executeUpdate();
+        logger.info("清空{}", description);
     }
 
     @Transactional
@@ -418,6 +646,27 @@ public class DataImportService {
                 logger.info("清空用户登录信息表");
             } catch (Exception e) {
                 logger.warn("清空用户登录信息表失败，可能表不存在: {}", e.getMessage());
+            }
+
+            try {
+                entityManager.createNativeQuery("DELETE FROM history_philosophy_bucket_cache").executeUpdate();
+                logger.info("清空历史哲学时间桶缓存表");
+            } catch (Exception e) {
+                logger.warn("清空历史哲学时间桶缓存表失败，可能表不存在: {}", e.getMessage());
+            }
+
+            try {
+                entityManager.createNativeQuery("DELETE FROM history_event").executeUpdate();
+                logger.info("清空历史事件表");
+            } catch (Exception e) {
+                logger.warn("清空历史事件表失败，可能表不存在: {}", e.getMessage());
+            }
+
+            try {
+                entityManager.createNativeQuery("DELETE FROM history_country").executeUpdate();
+                logger.info("清空历史国家表");
+            } catch (Exception e) {
+                logger.warn("清空历史国家表失败，可能表不存在: {}", e.getMessage());
             }
             
             try {
@@ -550,6 +799,15 @@ public class DataImportService {
             // 按照外键依赖关系的逆序删除
             
             // 1. 删除所有依赖表（没有外键约束的表）
+            entityManager.createNativeQuery("DELETE FROM history_philosophy_bucket_cache").executeUpdate();
+            logger.info("清空历史哲学时间桶缓存表");
+
+            entityManager.createNativeQuery("DELETE FROM history_event").executeUpdate();
+            logger.info("清空历史事件表");
+
+            entityManager.createNativeQuery("DELETE FROM history_country").executeUpdate();
+            logger.info("清空历史国家表");
+
             entityManager.createNativeQuery("DELETE FROM user_blocks").executeUpdate();
             logger.info("清空用户屏蔽表");
             
@@ -1489,7 +1747,13 @@ public class DataImportService {
                     continue;
                 }
 
+                int originalFieldCount = fields.length;
                 fields = ensureMinimumColumns(fields, SCHOOL_SECTION_MIN_COLUMNS);
+                boolean hasHistoryEnabledColumn = originalFieldCount >= 11;
+                int likeCountIndex = 7;
+                int historyEnabledIndex = hasHistoryEnabledColumn ? 8 : -1;
+                int createdAtIndex = hasHistoryEnabledColumn ? 9 : 8;
+                int updatedAtIndex = hasHistoryEnabledColumn ? 10 : 9;
 
                 Long schoolId = parseIdFromValue(fields[0]);
                 if (schoolId == null) {
@@ -1534,9 +1798,9 @@ public class DataImportService {
                 // 注意：创建者ID (字段6) 暂时跳过处理，因为School模型中需要User关联
 
                 // 处理点赞数 (字段7)
-                if (fields.length > 7 && !fields[7].isEmpty() && !fields[7].equals("null")) {
+                if (fields.length > likeCountIndex && !fields[likeCountIndex].isEmpty() && !fields[likeCountIndex].equals("null")) {
                     try {
-                        school.setLikeCount(Integer.parseInt(fields[7]));
+                        school.setLikeCount(Integer.parseInt(fields[likeCountIndex]));
                     } catch (NumberFormatException e) {
                         school.setLikeCount(0);
                     }
@@ -1544,21 +1808,25 @@ public class DataImportService {
                     school.setLikeCount(0);
                 }
 
+                school.setHistoryEnabled(parseBooleanLike(
+                        hasHistoryEnabledColumn && fields.length > historyEnabledIndex ? fields[historyEnabledIndex] : null,
+                        isEconomicsRelatedHistorySchool(school)));
+
                 // 解析创建时间 (字段8)
-                if (fields.length > 8 && !fields[8].equals("未知时间") && !fields[8].isEmpty() && !fields[8].equals("null")) {
+                if (fields.length > createdAtIndex && !fields[createdAtIndex].equals("未知时间") && !fields[createdAtIndex].isEmpty() && !fields[createdAtIndex].equals("null")) {
                     try {
-                        school.setCreatedAt(LocalDateTime.parse(fields[8], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                        school.setCreatedAt(LocalDateTime.parse(fields[createdAtIndex], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
                     } catch (Exception e) {
-                        logger.warn("学派ID {}: 创建时间格式错误: {}", schoolId, fields[8]);
+                        logger.warn("学派ID {}: 创建时间格式错误: {}", schoolId, fields[createdAtIndex]);
                     }
                 }
                 
                 // 解析更新时间 (字段9)
-                if (fields.length > 9 && !fields[9].equals("未知时间") && !fields[9].isEmpty() && !fields[9].equals("null")) {
+                if (fields.length > updatedAtIndex && !fields[updatedAtIndex].equals("未知时间") && !fields[updatedAtIndex].isEmpty() && !fields[updatedAtIndex].equals("null")) {
                     try {
-                        school.setUpdatedAt(LocalDateTime.parse(fields[9], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+                        school.setUpdatedAt(LocalDateTime.parse(fields[updatedAtIndex], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
                     } catch (Exception e) {
-                        logger.warn("学派ID {}: 更新时间格式错误: {}", schoolId, fields[9]);
+                        logger.warn("学派ID {}: 更新时间格式错误: {}", schoolId, fields[updatedAtIndex]);
                     }
                 }
 
@@ -1595,6 +1863,7 @@ public class DataImportService {
                     addUpdateColumn(updateAssignments, updateParams, tableName, "description_en", school.getDescriptionEn(), context, false);
                     // 第一阶段不设置parent_id，第二阶段再处理
                     addUpdateColumn(updateAssignments, updateParams, tableName, "like_count", school.getLikeCount(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "history_enabled", school.isHistoryEnabled() ? 1 : 0, context, false);
 
                     if (ensureColumnExists(tableName, "updated_at", false, context)) {
                         updateAssignments.add("updated_at = ?");
@@ -1625,6 +1894,7 @@ public class DataImportService {
                         addInsertColumn(insertColumns, insertParams, tableName, "description_en", school.getDescriptionEn(), context, false);
                         // 第一阶段不设置parent_id，第二阶段再处理
                         addInsertColumn(insertColumns, insertParams, tableName, "like_count", school.getLikeCount(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "history_enabled", school.isHistoryEnabled() ? 1 : 0, context, false);
 
                         if (ensureColumnExists(tableName, "user_id", false, context)) {
                             insertColumns.add("user_id");
@@ -1715,6 +1985,46 @@ public class DataImportService {
         }
 
         logger.info("学派数据导入全部完成");
+    }
+
+    private boolean parseBooleanLike(String raw, boolean defaultValue) {
+        if (raw == null) {
+            return defaultValue;
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty() || "null".equals(normalized)) {
+            return defaultValue;
+        }
+        if (TRUE_STRING_VALUES.contains(normalized)) {
+            return true;
+        }
+        if (FALSE_STRING_VALUES.contains(normalized)) {
+            return false;
+        }
+        return defaultValue;
+    }
+
+    private boolean isEconomicsRelatedHistorySchool(School school) {
+        if (school == null) {
+            return false;
+        }
+        return containsHistoryKeyword(school.getName(), HISTORY_SCHOOL_ZH_KEYWORDS)
+                || containsHistoryKeyword(school.getNameEn(), HISTORY_SCHOOL_EN_KEYWORDS);
+    }
+
+    private boolean containsHistoryKeyword(String source, String[] keywords) {
+        if (source == null || source.isBlank()) {
+            return false;
+        }
+        String normalized = source.toLowerCase(Locale.ROOT)
+                .replace('-', ' ')
+                .replace('_', ' ');
+        for (String keyword : keywords) {
+            if (normalized.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void importPhilosophersInTransaction(ImportResult result, List<String[]> data) {
@@ -3939,6 +4249,220 @@ public class DataImportService {
             result.setMessage("作者修复失败: " + e.getMessage());
         }
         return result;
+    }
+
+    @Transactional
+    public void importHistoryCountriesInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importHistoryCountries(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("历史国家导入事务失败", e);
+        }
+    }
+
+    private void importHistoryCountries(ImportResult result, List<String[]> data) {
+        if (data == null || data.isEmpty()) {
+            logger.info("历史国家数据段缺失或为空，跳过导入");
+            result.addResult("历史国家", 0, 0);
+            return;
+        }
+
+        logger.info("开始导入历史国家数据，共 {} 条", data.size());
+        final String sectionName = "历史国家";
+        int success = 0, failed = 0;
+
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                if (fields == null || fields.length == 0 || isRowEmpty(fields)) {
+                    continue;
+                }
+                if (fields.length < 5) {
+                    logger.warn("历史国家字段数量不足（需要至少5个字段，实际{}个），跳过: {}", fields.length, Arrays.toString(fields));
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                            "字段数量不足，至少需要 5 个字段", null);
+                    continue;
+                }
+
+                Long id = Long.parseLong(fields[0].trim());
+                String countryCode = normalizeNullableCsvValue(fields[1]);
+                String mapSlotRaw = normalizeNullableCsvValue(fields[4]);
+                if (countryCode == null || mapSlotRaw == null) {
+                    logger.warn("历史国家缺少必填字段，跳过: {}", Arrays.toString(fields));
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                            "缺少必填字段：国家代码或地图槽位为空", null);
+                    continue;
+                }
+
+                HistoryMapSlot mapSlot;
+                try {
+                    mapSlot = HistoryMapSlot.valueOf(mapSlotRaw.trim().toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException ex) {
+                    logger.warn("历史国家地图槽位无效 '{}', 跳过: {}", mapSlotRaw, Arrays.toString(fields));
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                            "地图槽位无效: '" + mapSlotRaw + "'", ex);
+                    continue;
+                }
+
+                final String tableName = "history_country";
+                final String context = "历史国家导入";
+                List<String> replaceColumns = new ArrayList<>();
+                List<Object> replaceParams = new ArrayList<>();
+
+                addInsertColumn(replaceColumns, replaceParams, tableName, "id", id, context, true);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "country_code", countryCode, context, true);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "name_zh", normalizeNullableCsvValue(fields[2]), context, false);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "name_en", normalizeNullableCsvValue(fields[3]), context, false);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "map_slot", mapSlot.name(), context, true);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "marker_lon", parseNullableDouble(fields.length > 5 ? fields[5] : null), context, false);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "marker_lat", parseNullableDouble(fields.length > 6 ? fields[6] : null), context, false);
+
+                LocalDateTime createdAt = parseOptionalLocalDateTime(fields.length > 7 ? fields[7] : null);
+                LocalDateTime updatedAt = parseOptionalLocalDateTime(fields.length > 8 ? fields[8] : null);
+                if (ensureColumnExists(tableName, "created_at", false, context)) {
+                    replaceColumns.add("created_at");
+                    replaceParams.add(createdAt != null ? createdAt : LocalDateTime.now());
+                }
+                if (ensureColumnExists(tableName, "updated_at", false, context)) {
+                    replaceColumns.add("updated_at");
+                    replaceParams.add(updatedAt != null ? updatedAt : (createdAt != null ? createdAt : LocalDateTime.now()));
+                }
+
+                String replaceSql = "REPLACE INTO " + tableName + " (" + String.join(", ", replaceColumns) + ") VALUES (" +
+                        String.join(", ", Collections.nCopies(replaceColumns.size(), "?")) + ")";
+                jakarta.persistence.Query replaceQuery = entityManager.createNativeQuery(replaceSql);
+                for (int p = 0; p < replaceParams.size(); p++) {
+                    replaceQuery.setParameter(p + 1, replaceParams.get(p));
+                }
+                replaceQuery.executeUpdate();
+                success++;
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入历史国家失败: {}", Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "导入失败", e);
+            }
+        }
+
+        result.addResult("历史国家", success, failed);
+        logger.info("历史国家数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    @Transactional
+    public void importHistoryEventsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importHistoryEvents(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("历史事件导入事务失败", e);
+        }
+    }
+
+    private void importHistoryEvents(ImportResult result, List<String[]> data) {
+        if (data == null || data.isEmpty()) {
+            logger.info("历史事件数据段缺失或为空，跳过导入");
+            result.addResult("历史事件", 0, 0);
+            return;
+        }
+
+        logger.info("开始导入历史事件数据，共 {} 条", data.size());
+        final String sectionName = "历史事件";
+        int success = 0, failed = 0;
+
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                if (fields == null || fields.length == 0 || isRowEmpty(fields)) {
+                    continue;
+                }
+                if (fields.length < 4) {
+                    logger.warn("历史事件字段数量不足（需要至少4个字段，实际{}个），跳过: {}", fields.length, Arrays.toString(fields));
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                            "字段数量不足，至少需要 4 个字段", null);
+                    continue;
+                }
+
+                Long id = Long.parseLong(fields[0].trim());
+                Long countryId = Long.parseLong(fields[1].trim());
+                String summaryZh = normalizeNullableCsvValue(fields[3]);
+                if (summaryZh == null) {
+                    logger.warn("历史事件缺少中文摘要，跳过: {}", Arrays.toString(fields));
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                            "缺少必填字段：中文摘要为空", null);
+                    continue;
+                }
+                if (historyCountryRepository == null || historyCountryRepository.findById(countryId).isEmpty()) {
+                    logger.warn("历史事件引用的国家ID '{}' 不存在，跳过: {}", countryId, Arrays.toString(fields));
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                            "引用的国家不存在: countryId=" + countryId, null);
+                    continue;
+                }
+
+                final String tableName = "history_event";
+                final String context = "历史事件导入";
+                List<String> replaceColumns = new ArrayList<>();
+                List<Object> replaceParams = new ArrayList<>();
+
+                addInsertColumn(replaceColumns, replaceParams, tableName, "id", id, context, true);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "country_id", countryId, context, true);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "start_year", Integer.parseInt(fields[2].trim()), context, true);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "summary_zh", summaryZh, context, true);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "summary_en", normalizeNullableCsvValue(fields.length > 4 ? fields[4] : null), context, false);
+
+                String replaceSql = "REPLACE INTO " + tableName + " (" + String.join(", ", replaceColumns) + ") VALUES (" +
+                        String.join(", ", Collections.nCopies(replaceColumns.size(), "?")) + ")";
+                jakarta.persistence.Query replaceQuery = entityManager.createNativeQuery(replaceSql);
+                for (int p = 0; p < replaceParams.size(); p++) {
+                    replaceQuery.setParameter(p + 1, replaceParams.get(p));
+                }
+                replaceQuery.executeUpdate();
+                success++;
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入历史事件失败: {}", Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "导入失败", e);
+            }
+        }
+
+        result.addResult("历史事件", success, failed);
+        logger.info("历史事件数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    private String normalizeNullableCsvValue(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty() || "null".equalsIgnoreCase(trimmed) || "未知时间".equals(trimmed)) {
+            return null;
+        }
+        return trimmed;
+    }
+
+    private Double parseNullableDouble(String raw) {
+        String normalized = normalizeNullableCsvValue(raw);
+        if (normalized == null) {
+            return null;
+        }
+        return Double.parseDouble(normalized);
+    }
+
+    private LocalDateTime parseOptionalLocalDateTime(String raw) {
+        String normalized = normalizeNullableCsvValue(raw);
+        if (normalized == null) {
+            return null;
+        }
+        return LocalDateTime.parse(normalized, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
     }
 
     public static class ImportResult {

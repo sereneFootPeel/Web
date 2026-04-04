@@ -379,15 +379,45 @@ public class DateUtils {
         if (year == null) {
             return null;
         }
-        
-        // 如果已经是YYYYMMDD格式（绝对值 >= 10000），直接返回
+
         if (Math.abs(year) >= 10000) {
             return year;
         }
-        
-        // 如果是旧格式（年份），转换为YYYYMMDD格式（仅年份）
-        // 规则：YYYY -> YYYY0000（用于排序；显示时仍为 YYYY）
+
         return year * 10000;
     }
-}
 
+    public static Integer parseHistoricalDate(String dateStr) {
+        return parseBirthDateFromRange(dateStr);
+    }
+
+    public static String formatHistoricalDate(Integer yyyymmdd) {
+        if (yyyymmdd == null) return "";
+        if (Math.abs(yyyymmdd) < 10000) {
+            return yyyymmdd < 0 ? Math.abs(yyyymmdd) + " BC" : String.valueOf(yyyymmdd);
+        }
+        return formatBirthYearToDateRange(yyyymmdd, null);
+    }
+
+    public static String formatHistoricalDate(int yyyymmdd) {
+        if (Math.abs(yyyymmdd) < 10000) {
+            return yyyymmdd < 0 ? Math.abs(yyyymmdd) + " BC" : String.valueOf(yyyymmdd);
+        }
+        return formatBirthYearToDateRange(yyyymmdd, null);
+    }
+
+    public static Integer extractTimelineYear(Integer yyyymmdd) {
+        if (yyyymmdd == null) return null;
+        if (Math.abs(yyyymmdd) < 10000) return yyyymmdd;
+        int abs = Math.abs(yyyymmdd);
+        int year = abs / 10000;
+        return yyyymmdd < 0 ? -year : year;
+    }
+
+    public static Integer extractTimelineYear(int yyyymmdd) {
+        if (Math.abs(yyyymmdd) < 10000) return yyyymmdd;
+        int abs = Math.abs(yyyymmdd);
+        int year = abs / 10000;
+        return yyyymmdd < 0 ? -year : year;
+    }
+}

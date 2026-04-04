@@ -32,6 +32,8 @@ public class DataExportService {
     private final SchoolTranslationRepository schoolTranslationRepository;
     private final ContentTranslationRepository contentTranslationRepository;
     private final PhilosopherTranslationRepository philosopherTranslationRepository;
+    private final HistoryCountryRepository historyCountryRepository;
+    private final HistoryEventRepository historyEventRepository;
 
     public DataExportService(UserRepository userRepository,
                              SchoolRepository schoolRepository,
@@ -44,7 +46,9 @@ public class DataExportService {
                              UserFollowRepository userFollowRepository,
                              SchoolTranslationRepository schoolTranslationRepository,
                              ContentTranslationRepository contentTranslationRepository,
-                             PhilosopherTranslationRepository philosopherTranslationRepository) {
+                             PhilosopherTranslationRepository philosopherTranslationRepository,
+                             HistoryCountryRepository historyCountryRepository,
+                             HistoryEventRepository historyEventRepository) {
         this.userRepository = userRepository;
         this.schoolRepository = schoolRepository;
         this.philosopherRepository = philosopherRepository;
@@ -57,6 +61,8 @@ public class DataExportService {
         this.schoolTranslationRepository = schoolTranslationRepository;
         this.contentTranslationRepository = contentTranslationRepository;
         this.philosopherTranslationRepository = philosopherTranslationRepository;
+        this.historyCountryRepository = historyCountryRepository;
+        this.historyEventRepository = historyEventRepository;
     }
 
     public String exportAllDataToCsv() {
@@ -101,10 +107,10 @@ public class DataExportService {
 
             // 导出学派数据
             pw.println("学派数据");
-            pw.println("ID,名称,英文名称,描述,英文描述,父学派ID,创建者ID,点赞数,创建时间,更新时间");
+            pw.println("ID,名称,英文名称,描述,英文描述,父学派ID,创建者ID,点赞数,历史显示,创建时间,更新时间");
             List<School> schools = schoolRepository.findAll();
             for (School school : schools) {
-                pw.printf("%d,%s,%s,%s,%s,%s,%s,%d,%s,%s%n",
+                pw.printf("%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s%n",
                     school.getId(),
                     escapeCsv(school.getName()),
                     escapeCsv(school.getNameEn()),
@@ -113,6 +119,7 @@ public class DataExportService {
                     school.getParent() != null ? school.getParent().getId().toString() : "",
                     school.getUser() != null ? school.getUser().getId().toString() : "",
                     school.getLikeCount(),
+                    school.isHistoryEnabled() ? "1" : "0",
                     school.getCreatedAt() != null ? school.getCreatedAt().format(formatter) : "未知时间",
                     school.getUpdatedAt() != null ? school.getUpdatedAt().format(formatter) : "未知时间"
                 );
@@ -263,6 +270,40 @@ public class DataExportService {
                     follow.getFollower().getId(),
                     follow.getFollowing().getId(),
                     follow.getCreatedAt() != null ? follow.getCreatedAt().format(formatter) : "未知时间"
+                );
+            }
+            pw.println();
+
+            // 导出历史国家数据
+            pw.println("历史国家数据");
+            pw.println("ID,国家代码,中文名称,英文名称,地图槽位,标记经度,标记纬度,创建时间,更新时间");
+            List<HistoryCountry> historyCountries = historyCountryRepository.findAllByOrderByMapSlotAscIdAsc();
+            for (HistoryCountry country : historyCountries) {
+                pw.printf("%d,%s,%s,%s,%s,%s,%s,%s,%s%n",
+                    country.getId(),
+                    escapeCsv(country.getCountryCode()),
+                    escapeCsv(country.getNameZh()),
+                    escapeCsv(country.getNameEn()),
+                    country.getMapSlot() != null ? country.getMapSlot().name() : "",
+                    country.getMarkerLon() != null ? country.getMarkerLon().toString() : "",
+                    country.getMarkerLat() != null ? country.getMarkerLat().toString() : "",
+                    country.getCreatedAt() != null ? country.getCreatedAt().format(formatter) : "未知时间",
+                    country.getUpdatedAt() != null ? country.getUpdatedAt().format(formatter) : "未知时间"
+                );
+            }
+            pw.println();
+
+            // 导出历史事件数据
+            pw.println("历史事件数据");
+            pw.println("ID,国家ID,开始年份,中文摘要,英文摘要");
+            List<HistoryEvent> historyEvents = historyEventRepository.findAll();
+            for (HistoryEvent event : historyEvents) {
+                pw.printf("%d,%s,%d,%s,%s%n",
+                    event.getId(),
+                    event.getCountry() != null ? event.getCountry().getId().toString() : "",
+                    event.getStartYear(),
+                    escapeCsv(event.getSummaryZh()),
+                    escapeCsv(event.getSummaryEn())
                 );
             }
             pw.println();

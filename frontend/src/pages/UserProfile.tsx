@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, type MouseEvent } from 'react'
+ import { useEffect, useState, useCallback, type MouseEvent, type KeyboardEvent } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useAuth } from '../contexts/AuthContext'
@@ -222,6 +222,23 @@ export function UserProfile() {
     }
   }
 
+  const navigateToTestDetail = (detailUrl?: string | null) => {
+    if (!detailUrl) return
+    if (detailUrl.startsWith('/')) {
+      navigate(detailUrl)
+      return
+    }
+    window.location.assign(detailUrl)
+  }
+
+  const handleTestCardKeyDown = (event: KeyboardEvent<HTMLDivElement>, detailUrl?: string | null) => {
+    if (!detailUrl) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      navigateToTestDetail(detailUrl)
+    }
+  }
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -305,8 +322,12 @@ export function UserProfile() {
             {testResults.map((tr) => (
               <div
                 key={tr.id}
-                className="rounded-xl shadow-md p-4 border"
+                className={`rounded-xl shadow-md p-4 border transition-shadow ${tr.detailUrl ? 'cursor-pointer hover:shadow-lg' : ''}`}
                 style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}
+                onClick={() => navigateToTestDetail(tr.detailUrl)}
+                onKeyDown={(event) => handleTestCardKeyDown(event, tr.detailUrl)}
+                role={tr.detailUrl ? 'link' : undefined}
+                tabIndex={tr.detailUrl ? 0 : undefined}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -331,17 +352,6 @@ export function UserProfile() {
                     <div className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
                       {formatTestDate(tr.createdAt)}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {tr.detailUrl && (
-                      <a
-                        href={tr.detailUrl}
-                        className="text-xs underline"
-                        style={{ color: 'var(--text-secondary)' }}
-                      >
-                        {t('详情', 'Detail')}
-                      </a>
-                    )}
                   </div>
                 </div>
 
@@ -394,7 +404,10 @@ export function UserProfile() {
                       type="button"
                       className="px-3 py-1.5 rounded text-xs font-medium transition-colors hover:opacity-90"
                       style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}
-                      onClick={() => handleToggleTestVisibility(tr.id, !tr.isPublic)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleToggleTestVisibility(tr.id, !tr.isPublic)
+                      }}
                     >
                       {tr.isPublic ? t('设为私密', 'Make private') : t('设为公开', 'Make public')}
                     </button>
@@ -402,7 +415,10 @@ export function UserProfile() {
                       type="button"
                       className="px-3 py-1.5 rounded text-xs font-medium transition-colors hover:opacity-90"
                       style={{ color: '#991b1b', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}
-                      onClick={() => handleDeleteTestResult(tr.id)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void handleDeleteTestResult(tr.id)
+                      }}
                     >
                       {t('删除', 'Delete')}
                     </button>

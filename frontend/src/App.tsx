@@ -5,6 +5,7 @@ import { Home } from './pages/Home'
 import { Quotes } from './pages/Quotes'
 import { Philosophers } from './pages/Philosophers'
 import { Schools } from './pages/Schools'
+import { History } from './pages/History'
 import { Search } from './pages/Search'
 import { Login } from './pages/Login'
 import { Register } from './pages/Register'
@@ -24,6 +25,7 @@ export function App() {
           <Route path="quotes" element={<Quotes />} />
           <Route path="philosophers" element={<Philosophers />} />
           <Route path="schools" element={<Schools />} />
+          <Route path="history" element={<History />} />
           <Route path="search" element={<Search />} />
           <Route path="content/:id" element={<ContentComment />} />
           <Route path="tests" element={<Tests />} />

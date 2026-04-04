@@ -160,6 +160,7 @@ public class TestResultController {
         body.put("isPublic", record.isPublic());
         body.put("userId", record.getUser() != null ? record.getUser().getId() : null);
         body.put("isOwner", viewer != null && record.getUser() != null && viewer.getId().equals(record.getUser().getId()));
+        body.put("resultJson", record.getResultJson());
         body.put("scoreRows", TestResultScoreFormatter.parseScoreRows(record.getTestType(), record.getResultJson(), objectMapper));
         return ResponseEntity.ok(body);
     }

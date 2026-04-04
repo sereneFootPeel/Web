@@ -48,9 +48,41 @@ type AdminContent = {
   schoolName?: string | null
 }
 
-type Section = 'dashboard' | 'users' | 'philosophers' | 'schools' | 'contents' | 'import'
+type AdminHistoryCountry = {
+  id: number
+  countryCode: string
+  code?: string
+  nameZh?: string | null
+  nameEn?: string | null
+}
 
-const sections: Section[] = ['dashboard', 'users', 'philosophers', 'schools', 'contents', 'import']
+type AdminHistoryEvent = {
+  id: number
+  countryId?: number | null
+  regionId?: number | null
+  summaryZh: string
+  summaryEn?: string | null
+  startYear: number
+  startDateLabel?: string | null
+}
+
+type ImportStats = {
+  success: number
+  failed: number
+}
+
+type CsvImportResult = {
+  success: boolean
+  message?: string
+  totalImported?: number
+  totalFailed?: number
+  results?: Record<string, ImportStats>
+  failureDetails?: Record<string, string[]>
+}
+
+type Section = 'dashboard' | 'users' | 'philosophers' | 'schools' | 'contents' | 'history' | 'import'
+
+const sections: Section[] = ['dashboard', 'users', 'philosophers', 'schools', 'contents', 'history', 'import']
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -61,8 +93,19 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     },
     ...init,
   })
+  const contentType = res.headers.get('content-type') || ''
+  const finalUrl = res.url || ''
+  if (res.redirected || !contentType.includes('application/json')) {
+    const redirectedToLoginLikePage = finalUrl.includes('/login') || finalUrl.includes('error=401') || finalUrl.includes('error=403')
+    if (res.status === 401 || res.status === 403 || redirectedToLoginLikePage) {
+      throw new Error('登录状态已失效，请重新登录后重试')
+    }
+    throw new Error('服务器返回了非 JSON 响应，请稍后重试')
+  }
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((data as { message?: string }).message || '请求失败')
+  if (!res.ok || (typeof data === 'object' && data !== null && 'success' in (data as Record<string, unknown>) && (data as { success?: boolean }).success === false)) {
+    throw new Error((data as { message?: string }).message || '请求失败')
+  }
   return data as T
 }
 
@@ -82,6 +125,8 @@ export function AdminManage() {
   const [philosophers, setPhilosophers] = useState<AdminPhilosopher[]>([])
   const [schools, setSchools] = useState<AdminSchool[]>([])
   const [contents, setContents] = useState<AdminContent[]>([])
+  const [historyCountries, setHistoryCountries] = useState<AdminHistoryCountry[]>([])
+  const [historyEvents, setHistoryEvents] = useState<AdminHistoryEvent[]>([])
 
   const [userForm, setUserForm] = useState({ id: 0, username: '', email: '', role: 'USER', enabled: true, password: '' })
   const [philosopherForm, setPhilosopherForm] = useState({
@@ -91,8 +136,13 @@ export function AdminManage() {
   const [contentForm, setContentForm] = useState({
     id: 0, content: '', contentEn: '', philosopherId: '', schoolId: '',
   })
+  const [historyEventForm, setHistoryEventForm] = useState({
+    id: 0, countryId: '', startYear: '', summaryZh: '', summaryEn: '',
+  })
+  const [historyCountryFilterId, setHistoryCountryFilterId] = useState('')
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [clearExistingData, setClearExistingData] = useState(false)
+  const [lastImportResult, setLastImportResult] = useState<CsvImportResult | null>(null)
 
   async function loadCurrent() {
     setLoading(true)
@@ -119,6 +169,14 @@ export function AdminManage() {
         setContents(c.contents || [])
         setPhilosophers(p.philosophers || [])
         setSchools(s.schools || [])
+      } else if (section === 'history') {
+        const eventQuery = historyCountryFilterId ? `?countryId=${historyCountryFilterId}` : ''
+        const [countriesRes, eventsRes] = await Promise.all([
+          requestJson<{ countries: AdminHistoryCountry[] }>('/api/admin/history/countries'),
+          requestJson<{ events: AdminHistoryEvent[] }>(`/api/admin/history/events${eventQuery}`),
+        ])
+        setHistoryCountries(countriesRes.countries || [])
+        setHistoryEvents(eventsRes.events || [])
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败')
@@ -129,13 +187,20 @@ export function AdminManage() {
 
   useEffect(() => {
     void loadCurrent()
-  }, [section])
+  }, [section, historyCountryFilterId])
 
   function resetForms() {
     setUserForm({ id: 0, username: '', email: '', role: 'USER', enabled: true, password: '' })
     setPhilosopherForm({ id: 0, name: '', nameEn: '', birthDeathDate: '', bio: '', bioEn: '', imageUrl: '' })
     setSchoolForm({ id: 0, name: '', nameEn: '', description: '', descriptionEn: '', parentId: '' })
     setContentForm({ id: 0, content: '', contentEn: '', philosopherId: '', schoolId: '' })
+    setHistoryEventForm((current) => ({
+      id: 0,
+      countryId: historyCountryFilterId || current.countryId || '',
+      startYear: '',
+      summaryZh: '',
+      summaryEn: '',
+    }))
   }
 
   function showSuccess(msg: string) {
@@ -304,6 +369,41 @@ export function AdminManage() {
     }
   }
 
+  async function submitHistoryEvent(e: FormEvent) {
+    e.preventDefault()
+    const payload = {
+      countryId: historyEventForm.countryId ? Number(historyEventForm.countryId) : null,
+      startYear: historyEventForm.startYear.trim(),
+      summaryZh: historyEventForm.summaryZh,
+      summaryEn: historyEventForm.summaryEn || null,
+    }
+    try {
+      if (historyEventForm.id) {
+        await requestJson('/api/admin/history/events/' + historyEventForm.id, { method: 'PUT', body: JSON.stringify(payload) })
+        showSuccess('历史事件已更新')
+      } else {
+        await requestJson('/api/admin/history/events', { method: 'POST', body: JSON.stringify(payload) })
+        showSuccess('历史事件已创建')
+      }
+      resetForms()
+      await loadCurrent()
+    } catch (e) {
+      showError(e instanceof Error ? e.message : '保存历史事件失败')
+    }
+  }
+
+  async function removeHistoryEvent(id: number) {
+    if (!confirm('确定删除该历史事件？')) return
+    try {
+      await requestJson('/api/admin/history/events/' + id, { method: 'DELETE' })
+      showSuccess('历史事件已删除')
+      resetForms()
+      await loadCurrent()
+    } catch (e) {
+      showError(e instanceof Error ? e.message : '删除历史事件失败')
+    }
+  }
+
   async function uploadCsv(e: FormEvent) {
     e.preventDefault()
     if (!csvFile) {
@@ -319,11 +419,24 @@ export function AdminManage() {
         body: formData,
         credentials: 'include',
       })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error((data as { message?: string }).message || '上传失败')
-      const totalImported = (data as { totalImported?: number }).totalImported ?? 0
-      const totalFailed = (data as { totalFailed?: number }).totalFailed ?? 0
-      showSuccess(`导入完成：成功 ${totalImported}，失败 ${totalFailed}`)
+      const contentType = res.headers.get('content-type') || ''
+      const finalUrl = res.url || ''
+      if (res.redirected || !contentType.includes('application/json')) {
+        const redirectedToLoginLikePage = finalUrl.includes('/login') || finalUrl.includes('error=401') || finalUrl.includes('error=403')
+        if (res.status === 401 || res.status === 403 || redirectedToLoginLikePage) {
+          throw new Error('登录状态已失效，请重新登录后重试')
+        }
+        throw new Error('服务器返回了非 JSON 响应，请稍后重试')
+      }
+      const data = (await res.json().catch(() => ({}))) as CsvImportResult
+      setLastImportResult(data)
+      const totalImported = data.totalImported ?? 0
+      const totalFailed = data.totalFailed ?? 0
+      const summaryText = `导入完成：成功 ${totalImported}，失败 ${totalFailed}`
+      if (!res.ok || data.success === false) {
+        throw new Error(data.message || summaryText || '上传失败')
+      }
+      showSuccess(data.message ? `${summaryText}。${data.message}` : summaryText)
       setCsvFile(null)
     } catch (e5) {
       showError(e5 instanceof Error ? e5.message : '上传失败')
@@ -376,8 +489,8 @@ export function AdminManage() {
     if (!confirm('危险操作：确认删除数据库中的全部数据吗？此操作不可恢复。')) return
     if (!confirm('请再次确认：真的要清空全部数据库数据吗？')) return
     try {
-      await requestJson<{ success: boolean; message?: string }>('/api/admin/data-import/clear-all', { method: 'POST' })
-      showSuccess('数据库数据已全部删除')
+      const res = await requestJson<{ success: boolean; message?: string; before?: Record<string, number>; after?: Record<string, number> }>('/api/admin/data-import/clear-all', { method: 'POST' })
+      showSuccess(res.message || '数据库数据已全部删除')
       await loadCurrent()
     } catch (e) {
       showError(e instanceof Error ? e.message : '清空失败')
@@ -390,8 +503,12 @@ export function AdminManage() {
     { key: 'philosophers', label: '哲学家管理' },
     { key: 'schools', label: '流派管理' },
     { key: 'contents', label: '内容管理' },
+    { key: 'history', label: '历史管理' },
     { key: 'import', label: 'CSV导入' },
   ]
+
+  const importStatsEntries = Object.entries(lastImportResult?.results || {})
+  const importFailureEntries = Object.entries(lastImportResult?.failureDetails || {}).filter(([, details]) => details && details.length > 0)
 
   return (
     <div className="space-y-6">
@@ -597,21 +714,148 @@ export function AdminManage() {
         </div>
       )}
 
-      {!loading && section === 'import' && (
-        <form className="space-y-4 max-w-xl" onSubmit={uploadCsv}>
-          <div className="text-sm text-gray-600">上传从旧站导出的 CSV 数据文件，支持按同 ID 覆盖导入。</div>
-          <input type="file" accept=".csv" onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)} />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={clearExistingData} onChange={(e) => setClearExistingData(e.target.checked)} />
-            导入前先清空现有数据（危险操作）
-          </label>
-          <div className="flex flex-wrap gap-2">
-            <button className="px-4 py-2 rounded bg-black text-white" type="submit">上传并导入</button>
-            <button className="px-4 py-2 rounded border" type="button" onClick={() => void exportCsv()}>导出CSV文件</button>
-            <button className="px-4 py-2 rounded border" type="button" onClick={() => void sendCsvToEmail()}>发送CSV到邮箱</button>
-            <button className="px-4 py-2 rounded bg-red-600 text-white" type="button" onClick={() => void clearAllDatabaseData()}>删除全部数据库数据</button>
+      {!loading && section === 'history' && (
+        <div className="space-y-8">
+          <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+            <form className="space-y-3 sticky top-4" onSubmit={submitHistoryEvent}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="font-semibold">{historyEventForm.id ? '编辑历史事件' : '新增历史事件'}</h2>
+                <div className="flex items-center gap-2 text-sm">
+                  <span>筛选国家</span>
+                  <select className="border rounded p-2" value={historyCountryFilterId} onChange={(e) => setHistoryCountryFilterId(e.target.value)}>
+                    <option value="">全部</option>
+                    {historyCountries.map((country) => (
+                      <option key={country.id} value={country.id}>{country.nameZh || country.nameEn || country.countryCode}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <select className="w-full border rounded p-2" value={historyEventForm.countryId} onChange={(e) => setHistoryEventForm((v) => ({ ...v, countryId: e.target.value }))} required>
+                <option value="">选择国家</option>
+                {historyCountries.map((country) => (
+                  <option key={country.id} value={country.id}>{country.nameZh || country.nameEn || country.countryCode}</option>
+                ))}
+              </select>
+              <input className="w-full border rounded p-2" placeholder="开始日期，如 1787 / 1787.9.17 / 460BC" value={historyEventForm.startYear} onChange={(e) => setHistoryEventForm((v) => ({ ...v, startYear: e.target.value }))} required />
+              <textarea className="w-full border rounded p-2 min-h-32" placeholder="中文摘要" value={historyEventForm.summaryZh} onChange={(e) => setHistoryEventForm((v) => ({ ...v, summaryZh: e.target.value }))} required />
+              <textarea className="w-full border rounded p-2 min-h-24" placeholder="英文摘要（可空）" value={historyEventForm.summaryEn} onChange={(e) => setHistoryEventForm((v) => ({ ...v, summaryEn: e.target.value }))} />
+              <div className="flex gap-2">
+                <button className="px-4 py-2 rounded bg-black text-white" type="submit">保存事件</button>
+                <button className="px-4 py-2 rounded border" type="button" onClick={resetForms}>重置</button>
+              </div>
+              <p className="text-xs text-gray-500">
+                国家列表来自现有历史国家数据，这里只允许编辑历史事件，不再新增或修改国家/地区。
+              </p>
+            </form>
+            <div className="space-y-2">
+              {historyEvents.map((event) => {
+                const country = historyCountries.find((item) => item.id === (event.countryId ?? event.regionId ?? 0))
+                return (
+                  <div key={event.id} className="p-3 border rounded flex items-center justify-between gap-2">
+                    <div>
+                      <div className="font-medium">{country?.nameZh || country?.nameEn || country?.countryCode || `国家#${event.countryId ?? event.regionId ?? ''}`}</div>
+                      <div className="text-sm text-gray-500">{event.startDateLabel || event.startYear}</div>
+                      <div className="text-sm line-clamp-3">{event.summaryZh}</div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <button className="text-black" onClick={() => setHistoryEventForm({
+                        id: event.id,
+                        countryId: String(event.countryId ?? event.regionId ?? ''),
+                        startYear: String(event.startYear ?? ''),
+                        summaryZh: event.summaryZh || '',
+                        summaryEn: event.summaryEn || '',
+                      })}>编辑</button>
+                      <button className="text-red-600" onClick={() => void removeHistoryEvent(event.id)}>删除</button>
+                    </div>
+                  </div>
+                )
+              })}
+              {!historyEvents.length && <div className="text-sm text-gray-500">当前筛选条件下暂无历史事件</div>}
+            </div>
           </div>
-        </form>
+        </div>
+      )}
+
+      {!loading && section === 'import' && (
+        <div className="space-y-6 max-w-4xl">
+          <form className="space-y-4 max-w-xl" onSubmit={uploadCsv}>
+            <div className="text-sm text-gray-600">上传从旧站导出的 CSV 数据文件，支持按同 ID 覆盖导入。</div>
+            <input type="file" accept=".csv" onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)} />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={clearExistingData} onChange={(e) => setClearExistingData(e.target.checked)} />
+              导入前先清空现有数据（危险操作）
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <button className="px-4 py-2 rounded bg-black text-white" type="submit">上传并导入</button>
+              <button className="px-4 py-2 rounded border" type="button" onClick={() => void exportCsv()}>导出CSV文件</button>
+              <button className="px-4 py-2 rounded border" type="button" onClick={() => void sendCsvToEmail()}>发送CSV到邮箱</button>
+              <button className="px-4 py-2 rounded bg-red-600 text-white" type="button" onClick={() => void clearAllDatabaseData()}>删除全部数据库数据</button>
+            </div>
+          </form>
+
+          {lastImportResult && (
+            <div className="space-y-4 rounded-xl border p-4" style={{ borderColor: 'var(--border-primary)' }}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">最近一次导入详情</h2>
+                  <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                    {lastImportResult.message || '已返回导入结果'}
+                  </p>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-lg border px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
+                    <div className="text-xs text-gray-500">成功导入</div>
+                    <div className="text-xl font-semibold text-green-700">{lastImportResult.totalImported ?? 0}</div>
+                  </div>
+                  <div className="rounded-lg border px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
+                    <div className="text-xs text-gray-500">失败条数</div>
+                    <div className="text-xl font-semibold text-red-700">{lastImportResult.totalFailed ?? 0}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="font-medium mb-2">分项统计</h3>
+                {importStatsEntries.length > 0 ? (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {importStatsEntries.map(([name, stats]) => (
+                      <div key={name} className="rounded-lg border p-3" style={{ borderColor: 'var(--border-primary)' }}>
+                        <div className="font-medium">{name}</div>
+                        <div className="mt-2 text-sm text-green-700">成功：{stats?.success ?? 0}</div>
+                        <div className="text-sm text-red-700">失败：{stats?.failed ?? 0}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-500">暂无分项统计</div>
+                )}
+              </div>
+
+              <div>
+                <h3 className="font-medium mb-2">失败详情</h3>
+                {importFailureEntries.length > 0 ? (
+                  <div className="space-y-3">
+                    {importFailureEntries.map(([name, details]) => (
+                      <details key={name} className="rounded-lg border p-3" style={{ borderColor: 'var(--border-primary)' }}>
+                        <summary className="cursor-pointer font-medium">
+                          {name}（{details.length} 条）
+                        </summary>
+                        <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-red-700">
+                          {details.map((detail, index) => (
+                            <li key={`${name}-${index}`}>{detail}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    ))}
+                    <p className="text-xs text-gray-500">每个分类最多展示前 50 条失败明细。</p>
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-500">没有失败明细，说明本次导入没有记录到可展示的错误行。</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

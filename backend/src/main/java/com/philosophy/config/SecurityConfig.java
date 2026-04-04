@@ -7,6 +7,7 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.core.Ordered;
@@ -14,6 +15,8 @@ import jakarta.servlet.Filter;
 import com.philosophy.security.DeviceIdFilter;
 import com.philosophy.security.CustomAuthenticationFailureHandler;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.MediaType;
+import org.springframework.http.HttpStatus;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +48,10 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         logger.info("Configuring security filters");
+        RequestMatcher apiRequestMatcher = request -> {
+            String uri = request.getRequestURI();
+            return uri != null && uri.startsWith("/api/");
+        };
         
         http
             .cors(cors -> {})
@@ -66,6 +73,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/quotes/random").permitAll()
                 // 健康检查
                 .requestMatchers("/api/health").permitAll()
+                // 历史页 API 公开访问
+                .requestMatchers("/api/history/**").permitAll()
                 // 认证相关API
                 .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/send-code").permitAll()
                 .requestMatchers("/api/auth/me").permitAll()
@@ -98,6 +107,20 @@ public class SecurityConfig {
                 .logoutSuccessUrl("/")
                 .deleteCookies("remember-me")
                 .permitAll()
+            )
+            .exceptionHandling(exceptions -> exceptions
+                .defaultAuthenticationEntryPointFor((request, response, authException) -> {
+                    response.setStatus(HttpStatus.UNAUTHORIZED.value());
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.setCharacterEncoding("UTF-8");
+                    response.getWriter().write("{\"success\":false,\"message\":\"未登录或登录已失效\"}");
+                }, apiRequestMatcher)
+                .defaultAccessDeniedHandlerFor((request, response, accessDeniedException) -> {
+                    response.setStatus(HttpStatus.FORBIDDEN.value());
+                    response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+                    response.setCharacterEncoding("UTF-8");
+                    response.getWriter().write("{\"success\":false,\"message\":\"需要管理员权限\"}");
+                }, apiRequestMatcher)
             )
             // 记住我：勾选后登录状态保持 24 小时（1 天），关闭浏览器后仍有效
             .rememberMe(remember -> remember
