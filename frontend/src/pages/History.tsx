@@ -50,6 +50,8 @@ function formatBucketTitle(year: number) {
 
 export function History() {
   const { language, t } = useLanguage()
+  // This page relies heavily on absolute positioning, so it must own a stable viewport height.
+  const historyViewportHeight = 'calc(100dvh - 6rem)'
   const [year, setYear] = useState(() => normalizeToHistoryCenturyAnchor(1950))
   const [debouncedYear, setDebouncedYear] = useState(() => normalizeToHistoryCenturyAnchor(1950))
   useEffect(() => {
@@ -315,8 +317,8 @@ export function History() {
       style={{
         position: 'relative',
         flex: 1,
-        height: '100%',
-        minHeight: 0,
+        minHeight: 'calc(100vh - 6rem)',
+        height: historyViewportHeight,
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
