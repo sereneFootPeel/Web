@@ -9,8 +9,17 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfException;
+import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.csrf.CsrfTokenRequestHandler;
+import org.springframework.security.web.csrf.XorCsrfTokenRequestAttributeHandler;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
+import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.core.Ordered;
+import org.springframework.util.StringUtils;
 import jakarta.servlet.Filter;
 import com.philosophy.security.DeviceIdFilter;
 import com.philosophy.security.CustomAuthenticationFailureHandler;
@@ -18,11 +27,14 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.philosophy.model.User;
 import com.philosophy.service.IpLocationService;
 import com.philosophy.util.LanguageUtil;
+
+import java.util.function.Supplier;
 
 @Configuration
 @EnableWebSecurity
@@ -55,10 +67,43 @@ public class SecurityConfig {
         
         http
             .cors(cors -> {})
-            // 禁用CSRF保护以便于测试（API + SPA）
             .csrf(csrf -> csrf
-                .ignoringRequestMatchers("/api/**", "/admin/data-import/upload")
+                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
+                .ignoringRequestMatchers(
+                    "/admin/data-import/upload",
+                    "/admin/data-import/repair-authors",
+                    "/admin/data-import/api/upload",
+                    "/admin/data-import/api/repair-authors"
+                )
             )
+            .headers(headers -> {
+                headers.contentTypeOptions(contentTypeOptions -> {});
+                headers.frameOptions(frameOptions -> frameOptions.sameOrigin());
+                headers.httpStrictTransportSecurity(hsts -> hsts
+                    .includeSubDomains(true)
+                    .maxAgeInSeconds(31536000)
+                );
+                headers.referrerPolicy(referrer -> referrer
+                    .policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)
+                );
+                headers.addHeaderWriter(new StaticHeadersWriter(
+                    "Permissions-Policy",
+                    "accelerometer=(), autoplay=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()"
+                ));
+                headers.contentSecurityPolicy(csp -> csp.policyDirectives(
+                    "default-src 'self'; " +
+                    "base-uri 'self'; " +
+                    "object-src 'none'; " +
+                    "frame-ancestors 'self'; " +
+                    "img-src 'self' data: https:; " +
+                    "font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; " +
+                    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; " +
+                    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://kit.fontawesome.com https://cdnjs.cloudflare.com; " +
+                    "connect-src 'self' ws: wss: https:; " +
+                    "form-action 'self'"
+                ));
+            })
             // 添加请求日志记录过滤器
             .addFilterBefore((request, response, chain) -> {
                 HttpServletRequest httpRequest = (HttpServletRequest) request;
@@ -77,6 +122,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/history/**").permitAll()
                 // 认证相关API
                 .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/send-code").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                 .requestMatchers("/api/auth/me").permitAll()
                 // 允许所有用户访问的API（SPA 前端调用）
                 .requestMatchers("/api/schools/**", "/api/philosophers/**", "/api/search/**", "/api/contents/**").permitAll()
@@ -119,7 +165,11 @@ public class SecurityConfig {
                     response.setStatus(HttpStatus.FORBIDDEN.value());
                     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
                     response.setCharacterEncoding("UTF-8");
-                    response.getWriter().write("{\"success\":false,\"message\":\"需要管理员权限\"}");
+                    if (accessDeniedException instanceof CsrfException) {
+                        response.getWriter().write("{\"success\":false,\"message\":\"CSRF token 无效或缺失\"}");
+                    } else {
+                        response.getWriter().write("{\"success\":false,\"message\":\"需要管理员权限\"}");
+                    }
                 }, apiRequestMatcher)
             )
             // 记住我：勾选后登录状态保持 24 小时（1 天），关闭浏览器后仍有效
@@ -207,5 +257,24 @@ public class SecurityConfig {
             // 无论角色，默认重定向到首页，保持与普通用户一致
             response.sendRedirect("/");
         };
+    }
+
+    private static final class SpaCsrfTokenRequestHandler extends CsrfTokenRequestAttributeHandler {
+        private final CsrfTokenRequestHandler plain = new CsrfTokenRequestAttributeHandler();
+        private final CsrfTokenRequestHandler xor = new XorCsrfTokenRequestAttributeHandler();
+
+        @Override
+        public void handle(HttpServletRequest request, HttpServletResponse response, Supplier<CsrfToken> csrfToken) {
+            this.xor.handle(request, response, csrfToken);
+            csrfToken.get();
+        }
+
+        @Override
+        public String resolveCsrfTokenValue(HttpServletRequest request, CsrfToken csrfToken) {
+            String headerValue = request.getHeader(csrfToken.getHeaderName());
+            return StringUtils.hasText(headerValue)
+                ? this.plain.resolveCsrfTokenValue(request, csrfToken)
+                : this.xor.resolveCsrfTokenValue(request, csrfToken);
+        }
     }
 }

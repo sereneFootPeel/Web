@@ -12,6 +12,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.web.bind.annotation.*;
 
@@ -127,6 +128,16 @@ public class AuthApiController {
             res.put("message", "用户名或密码错误");
             return ResponseEntity.status(401).body(res);
         }
+    }
+
+    @GetMapping("/csrf")
+    public ResponseEntity<Map<String, Object>> csrf(CsrfToken csrfToken) {
+        Map<String, Object> res = new HashMap<>();
+        res.put("success", true);
+        res.put("headerName", csrfToken.getHeaderName());
+        res.put("parameterName", csrfToken.getParameterName());
+        res.put("token", csrfToken.getToken());
+        return ResponseEntity.ok(res);
     }
 
     @GetMapping("/me")

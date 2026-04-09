@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { fetchWithCredentials } from '../api/client'
 
 type Dashboard = {
   philosophersCount: number
@@ -85,8 +86,7 @@ type Section = 'dashboard' | 'users' | 'philosophers' | 'schools' | 'contents' |
 const sections: Section[] = ['dashboard', 'users', 'philosophers', 'schools', 'contents', 'history', 'import']
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    credentials: 'include',
+  const res = await fetchWithCredentials(url, {
     headers: {
       'Content-Type': 'application/json',
       ...(init?.headers ?? {}),
@@ -414,10 +414,9 @@ export function AdminManage() {
       const formData = new FormData()
       formData.append('file', csvFile)
       formData.append('clearExistingData', String(clearExistingData))
-      const res = await fetch('/api/admin/data-import/upload', {
+      const res = await fetchWithCredentials('/api/admin/data-import/upload', {
         method: 'POST',
         body: formData,
-        credentials: 'include',
       })
       const contentType = res.headers.get('content-type') || ''
       const finalUrl = res.url || ''
@@ -445,9 +444,8 @@ export function AdminManage() {
 
   async function exportCsv() {
     try {
-      const res = await fetch('/api/admin/data-export/download', {
+      const res = await fetchWithCredentials('/api/admin/data-export/download', {
         method: 'GET',
-        credentials: 'include',
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -473,9 +471,8 @@ export function AdminManage() {
 
   async function sendCsvToEmail() {
     try {
-      const res = await fetch('/api/admin/data-export/send-email', {
+      const res = await fetchWithCredentials('/api/admin/data-export/send-email', {
         method: 'POST',
-        credentials: 'include',
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error((data as { message?: string }).message || '发送失败')

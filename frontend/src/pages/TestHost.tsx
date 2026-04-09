@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { fetchWithCredentials } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useAuth } from '../contexts/AuthContext'
 import { MBTI_DIMENSIONS, getMbtiPolesLabel, getMbtiTypeDescription, type SupportedLanguage } from '../utils/mbti'
@@ -169,10 +170,9 @@ export function TestHost() {
         resultJson: JSON.stringify(payload),
         isPublic: 'false',
       })
-      await fetch('/api/test-results', {
+      await fetchWithCredentials('/api/test-results', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        credentials: 'include',
         body: body.toString(),
       })
     } catch {

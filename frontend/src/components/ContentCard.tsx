@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { fetchWithCredentials } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 
 export type ContentCardData = {
@@ -74,10 +75,9 @@ export function ContentCard({
     if (loading) return
     setLoading(true)
     try {
-      const res = await fetch('/api/likes/toggle', {
+      const res = await fetchWithCredentials('/api/likes/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        credentials: 'include',
         body: `entityType=CONTENT&entityId=${item.id}`,
       })
       const data = await res.json()

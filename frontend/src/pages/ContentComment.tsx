@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type MouseEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { philosophyApi, apiDeleteComment, apiPostComment } from '../api/philosophy'
+import { fetchWithCredentials } from '../api/client'
 import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 import { CommentCard } from '../components/CommentCard'
@@ -125,10 +126,9 @@ export function ContentComment() {
     if (likeLoading) return
     setLikeLoading(true)
     try {
-      const res = await fetch('/api/likes/toggle', {
+      const res = await fetchWithCredentials('/api/likes/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        credentials: 'include',
         body: `entityType=CONTENT&entityId=${contentId}`,
       })
       const data = await res.json()

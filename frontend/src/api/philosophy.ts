@@ -1,4 +1,4 @@
-import { apiGet } from './client'
+import { apiGet, fetchWithCredentials } from './client'
 
 export type HealthResponse = { success: boolean; timestamp: string }
 
@@ -203,10 +203,9 @@ export const philosophyApi = {
 }
 
 export async function apiPostComment(contentId: number, body: string, parentId?: number) {
-  const res = await fetch(`/api/comments/content/${contentId}`, {
+  const res = await fetchWithCredentials(`/api/comments/content/${contentId}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
     body: JSON.stringify({ body, parentId: parentId ?? null }),
   })
   const data = await res.json()
@@ -215,9 +214,8 @@ export async function apiPostComment(contentId: number, body: string, parentId?:
 }
 
 export async function apiDeleteComment(commentId: number) {
-  const res = await fetch(`/api/comments/${commentId}`, {
+  const res = await fetchWithCredentials(`/api/comments/${commentId}`, {
     method: 'DELETE',
-    credentials: 'include',
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.message || '删除失败')

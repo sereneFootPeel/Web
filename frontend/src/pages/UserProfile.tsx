@@ -1,5 +1,6 @@
  import { useEffect, useState, useCallback, type MouseEvent, type KeyboardEvent } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
+import { fetchWithCredentials } from '../api/client'
 import { useLanguage } from '../contexts/LanguageContext'
 import { useAuth } from '../contexts/AuthContext'
 import { ContentCard } from '../components/ContentCard'
@@ -192,9 +193,8 @@ export function UserProfile() {
 
   const handleToggleTestVisibility = async (recordId: number, nextPublic: boolean) => {
     try {
-      const r = await fetch(`/api/test-results/${recordId}/visibility?isPublic=${nextPublic ? 'true' : 'false'}`, {
+      const r = await fetchWithCredentials(`/api/test-results/${recordId}/visibility?isPublic=${nextPublic ? 'true' : 'false'}`, {
         method: 'PATCH',
-        credentials: 'include',
       })
       const data = await r.json().catch(() => null)
       if (!r.ok || !data?.success) throw new Error(data?.message || t('操作失败', 'Operation failed'))
@@ -210,7 +210,7 @@ export function UserProfile() {
   const handleDeleteTestResult = async (recordId: number) => {
     if (!window.confirm(t('确定要删除这条测试记录吗？', 'Are you sure you want to delete this test record?'))) return
     try {
-      const r = await fetch(`/api/test-results/${recordId}`, { method: 'DELETE', credentials: 'include' })
+      const r = await fetchWithCredentials(`/api/test-results/${recordId}`, { method: 'DELETE' })
       const data = await r.json().catch(() => null)
       if (!r.ok || !data?.success) throw new Error(data?.message || t('删除失败', 'Delete failed'))
       setProfile((p) => {

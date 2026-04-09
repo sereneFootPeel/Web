@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
+import { fetchWithCredentials } from '../api/client'
 
 export type User = {
   id: number
@@ -32,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch('/api/auth/me', { credentials: 'include' })
+      const res = await fetchWithCredentials('/api/auth/me')
       const data = await res.json()
       setState({
         user: data.authenticated && data.user ? data.user : null,
@@ -49,10 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh])
 
   const login = useCallback(async (username: string, password: string) => {
-    const res = await fetch('/api/auth/login', {
+    const res = await fetchWithCredentials('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ username, password }),
     })
     const data = await res.json()
@@ -64,15 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const logout = useCallback(async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    await fetchWithCredentials('/api/auth/logout', { method: 'POST' })
     setState({ user: null, loading: false, authenticated: false })
   }, [])
 
   const register = useCallback(async (d: { username: string; email: string; password: string; verificationCode: string }) => {
-    const res = await fetch('/api/auth/register', {
+    const res = await fetchWithCredentials('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify(d),
     })
     const data = await res.json()
@@ -84,10 +83,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const sendCode = useCallback(async (email: string) => {
-    const res = await fetch('/api/auth/send-code', {
+    const res = await fetchWithCredentials('/api/auth/send-code', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
       body: JSON.stringify({ email }),
     })
     const data = await res.json()

@@ -4,6 +4,7 @@ import com.philosophy.model.Comment;
 import com.philosophy.model.Content;
 import com.philosophy.model.User;
 import com.philosophy.repository.CommentRepository;
+import com.philosophy.util.InputValidator;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
@@ -62,7 +63,7 @@ public class CommentService {
             throw new IllegalArgumentException("Content not found with id: " + contentId);
         }
 
-        Comment comment = new Comment(content, user, body);
+        Comment comment = new Comment(content, user, sanitizeCommentBody(body));
         // Ensure createdAt is set explicitly as a fallback
         if (comment.getCreatedAt() == null) {
             comment.setCreatedAt(java.time.LocalDateTime.now());
@@ -103,7 +104,7 @@ public class CommentService {
         if (parent == null) {
             throw new IllegalArgumentException("Parent comment not found with id: " + parentId);
         }
-        Comment reply = new Comment(parent.getContent(), user, body);
+        Comment reply = new Comment(parent.getContent(), user, sanitizeCommentBody(body));
         reply.setParent(parent);
         // Ensure createdAt is set explicitly as a fallback
         if (reply.getCreatedAt() == null) {
@@ -368,5 +369,24 @@ public class CommentService {
             return new ArrayList<>();
         }
         return commentRepository.findBySchoolIdsOrderByCreatedAtDesc(schoolIds);
+    }
+
+    private String sanitizeCommentBody(String body) {
+        String sanitized = InputValidator.sanitizeInput(body);
+        if (sanitized == null || sanitized.isBlank()) {
+            throw new IllegalArgumentException("评论内容不能为空");
+        }
+
+        String normalized = sanitized
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .replace("<", "＜")
+            .replace(">", "＞");
+
+        if (normalized.length() > 5000) {
+            throw new IllegalArgumentException("评论内容不能超过5000个字符");
+        }
+
+        return normalized;
     }
 }
