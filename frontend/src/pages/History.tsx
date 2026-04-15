@@ -32,13 +32,6 @@ function normalizeRegionYearBounds(min: number, max: number) {
     : { min: normalizedMax, max: normalizedMin }
 }
 
-function historyYearDistance(a: number, b: number) {
-  if ((a < 0 && b < 0) || (a > 0 && b > 0)) {
-    return Math.abs(a - b)
-  }
-  return Math.abs(a) + Math.abs(b) - 1
-}
-
 function formatBucketTitle(year: number) {
   if (year > 0) {
     if (year < 100) {
@@ -206,13 +199,10 @@ export function History() {
   )
 
   const handleCardsYearChange = useCallback(
-    ({ rawYear, anchorYear }: HistoryCardsPanelYearChange) => {
+    ({ anchorYear }: HistoryCardsPanelYearChange) => {
       setYear((current) => {
         const next = resolveHistoryYear(anchorYear)
         if (current === next) return current
-        if (historyYearDistance(rawYear, current) <= 100) {
-          return current
-        }
         requestAnimationFrame(() => bumpScrollSync())
         return next
       })

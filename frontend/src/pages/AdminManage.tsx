@@ -161,8 +161,42 @@ function getHistoryEventSortDate(event: AdminHistoryEvent) {
   return event.sortDate ?? event.startYear
 }
 
+function formatHistoryEventInputFallback(value?: number | null) {
+  if (value == null || Number.isNaN(value)) return ''
+
+  const isBc = value < 0
+  const absolute = Math.abs(value)
+  if (absolute < 10000) {
+    return isBc ? `${absolute} BC` : String(value)
+  }
+
+  const year = Math.trunc(absolute / 10000)
+  const month = Math.trunc((absolute % 10000) / 100)
+  const day = absolute % 100
+
+  if (month === 0 && day === 1) {
+    return isBc ? `${year} BC` : `c. ${year}`
+  }
+  if (month === 0 && day === 0) {
+    return isBc ? `${year} BC` : String(year)
+  }
+
+  const prefix = isBc ? '-' : ''
+  return `${prefix}${year}.${month}.${day}`
+}
+
+function pickReadableHistoryInputText(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    const normalized = value?.trim()
+    if (!normalized) continue
+    if (/^-?\d{5,}$/.test(normalized)) continue
+    return normalized
+  }
+  return null
+}
+
 function getHistoryEventInputValue(event: AdminHistoryEvent) {
-  return event.startDateText || event.startDateLabel || String(event.startYear ?? '')
+  return pickReadableHistoryInputText(event.startDateText, event.startDateLabel) || formatHistoryEventInputFallback(event.startYear)
 }
 
 export function AdminManage() {

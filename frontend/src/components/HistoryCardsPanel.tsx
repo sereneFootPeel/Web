@@ -107,30 +107,30 @@ export function HistoryCardsPanel({
     [events, philosophyCards],
   )
 
-  const reportTopPinnedEventYear = useCallback(() => {
-    if (!onYearChange || !listRef.current || !scrollerRef.current) return
+  const findTopPinnedItem = useCallback(() => {
+    if (!listRef.current || !scrollerRef.current) return null
 
     const scroller = scrollerRef.current
     const scrollerRect = scroller.getBoundingClientRect()
     const paddingTop = Number.parseFloat(window.getComputedStyle(scroller).paddingTop || '0') || 0
     const pinTop = scrollerRect.top + paddingTop + 1
-    const items = listRef.current.querySelectorAll<HTMLElement>('.timeline-item')
+    const items = Array.from(listRef.current.querySelectorAll<HTMLElement>('.timeline-item'))
 
-    let closestItem: HTMLElement | null = null
-    let closestDistance = Number.POSITIVE_INFINITY
-
-    items.forEach((item) => {
+    for (const item of items) {
       const rect = item.getBoundingClientRect()
-      if (rect.bottom <= pinTop) return
-      const distance = Math.abs(rect.top - pinTop)
-      if (distance < closestDistance) {
-        closestDistance = distance
-        closestItem = item
+      if (rect.bottom > pinTop) {
+        return item
       }
-    })
+    }
 
-    if (!closestItem) return
-    const topItem = closestItem as HTMLElement
+    return items[items.length - 1] ?? null
+  }, [])
+
+  const reportTopPinnedEventYear = useCallback(() => {
+    if (!onYearChange) return
+
+    const topItem = findTopPinnedItem()
+    if (!topItem) return
     if (topItem.getAttribute('data-kind') !== 'event') return
 
     const rawYear = Number.parseInt(topItem.getAttribute('data-raw-year') || '', 10)
@@ -145,7 +145,7 @@ export function HistoryCardsPanel({
 
     lastReportedYearRef.current = anchorYear
     onYearChange({ rawYear, anchorYear })
-  }, [onYearChange])
+  }, [findTopPinnedItem, onYearChange])
 
   const finishProgrammaticScroll = useCallback(
     (reportAfterScroll: boolean) => {
@@ -201,31 +201,8 @@ export function HistoryCardsPanel({
 
   const snapToTopItem = useCallback(
     (options: { smooth?: boolean; reportAfterScroll?: boolean } = {}) => {
-      const list = listRef.current
-      const scroller = scrollerRef.current
-      if (!list || !scroller) return
-
-      const paddingTop = Number.parseFloat(window.getComputedStyle(scroller).paddingTop || '0') || 0
-      const pinTop = scroller.getBoundingClientRect().top + paddingTop + 1
-      const items = Array.from(list.querySelectorAll<HTMLElement>('.timeline-item'))
-      if (items.length === 0) return
-
-      let closestItem: HTMLElement | null = null
-      let closestDistance = Number.POSITIVE_INFINITY
-
-      items.forEach((item) => {
-        const rect = item.getBoundingClientRect()
-        if (rect.bottom <= pinTop) return
-        const distance = Math.abs(rect.top - pinTop)
-        if (distance < closestDistance) {
-          closestDistance = distance
-          closestItem = item
-        }
-      })
-
-      if (!closestItem) {
-        closestItem = items[items.length - 1]
-      }
+      const closestItem = findTopPinnedItem()
+      if (!closestItem) return
 
       scrollItemToTop(closestItem, {
         smooth: options.smooth,
@@ -233,7 +210,7 @@ export function HistoryCardsPanel({
         reportAfterScroll: options.reportAfterScroll,
       })
     },
-    [scrollItemToTop],
+    [findTopPinnedItem, scrollItemToTop],
   )
 
   useEffect(() => {

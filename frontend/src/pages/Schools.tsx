@@ -48,7 +48,7 @@ function TreeNode({
 
   return (
     <div className="pl-2" style={{ marginLeft: level * 12 }}>
-      <div className="w-full flex items-center justify-between gap-2 py-1 rounded text-left">
+      <div className="flex w-full items-start justify-between gap-2 rounded py-1 text-left">
         <button
           onClick={() => {
             if (hasChildren) {
@@ -61,10 +61,10 @@ function TreeNode({
             }
             onSelect(node.id)
           }}
-          className="flex-1 text-left min-w-0"
+          className="min-w-0 flex-1 text-left"
         >
           <span
-            className={`text-left text-sm ${isSelected ? 'font-bold' : ''}`}
+            className={`block whitespace-normal break-words text-left text-sm leading-5 ${isSelected ? 'font-bold' : ''}`}
             style={{ color: isSelected ? '#111827' : 'var(--text-secondary)' }}
           >
             {node.displayName}
@@ -76,7 +76,7 @@ function TreeNode({
               e.stopPropagation()
               onToggle(node.id)
             }}
-            className="shrink-0 px-1 py-0.5 -my-0.5 rounded hover:bg-black/5 cursor-pointer"
+            className="shrink-0 rounded px-1 py-0.5 hover:bg-black/5 cursor-pointer"
             title={open ? t('收起', 'Collapse') : t('展开', 'Expand')}
           >
             <span
@@ -93,7 +93,7 @@ function TreeNode({
         ) : null}
       </div>
       {open && hasChildren && (
-        <div className="mt-1">
+        <div className="mt-1 space-y-1">
           {children.map((c) => (
             <TreeNode
               key={c.id}
@@ -277,18 +277,20 @@ export function Schools() {
           {loading ? (
             <p className="text-sm">{t('加载中...', 'Loading...')}</p>
           ) : (
-            tree.map((n) => (
-              <TreeNode
-                key={n.id}
-                node={n}
-                nodes={nodes}
-                selectedId={selectedId}
-                expandedIds={expandedIds}
-                onToggle={toggleNode}
-                onSelect={selectNode}
-                t={t}
-              />
-            ))
+            <div className="space-y-1">
+              {tree.map((n) => (
+                <TreeNode
+                  key={n.id}
+                  node={n}
+                  nodes={nodes}
+                  selectedId={selectedId}
+                  expandedIds={expandedIds}
+                  onToggle={toggleNode}
+                  onSelect={selectNode}
+                  t={t}
+                />
+              ))}
+            </div>
           )}
         </div>
       </aside>
