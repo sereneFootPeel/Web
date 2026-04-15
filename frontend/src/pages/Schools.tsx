@@ -93,7 +93,7 @@ function TreeNode({
         ) : null}
       </div>
       {open && hasChildren && (
-        <div className="mt-1 space-y-1">
+        <div>
           {children.map((c) => (
             <TreeNode
               key={c.id}
@@ -277,7 +277,7 @@ export function Schools() {
           {loading ? (
             <p className="text-sm">{t('加载中...', 'Loading...')}</p>
           ) : (
-            <div className="space-y-1">
+            <div>
               {tree.map((n) => (
                 <TreeNode
                   key={n.id}

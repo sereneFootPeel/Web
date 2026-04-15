@@ -22,20 +22,18 @@ GRANT ALL PRIVILEGES ON philosophy_db.* TO 'philosophy_user'@'%';
 FLUSH PRIVILEGES;
 SQL
 
-echo "[4] seed runtime history data explicitly"
-cd /home/linuxuser/Web
-chmod +x ./deploy/seed_history_data.sh
-DB_ROOT_PASSWORD='Mmoonj10y?' PROJECT_ROOT='/home/linuxuser/Web' ./deploy/seed_history_data.sh
-
-echo "[5] restart backend"
+echo "[4] restart backend"
 cd /home/linuxuser/Web/backend
 chmod +x ./mvnw
 if command -v fuser >/dev/null 2>&1; then
   fuser -k 8080/tcp >/dev/null 2>&1 || true
 fi
+SPRING_SQL_INIT_MODE=always \
+SPRING_SQL_INIT_SCHEMA_LOCATIONS=classpath:schema-mysql.sql \
+SPRING_SQL_INIT_DATA_LOCATIONS= \
 nohup ./mvnw -q spring-boot:run > spring-boot.run.log 2>&1 &
 
-echo "[6] wait and verify"
+echo "[5] wait and verify"
 sleep 55
 ss -ltnp | grep ':8080' || true
 mysql -uroot -p'Mmoonj10y?' -D philosophy_db -e "SELECT COUNT(*) AS history_country_count FROM history_country; SELECT COUNT(*) AS history_event_count FROM history_event;"

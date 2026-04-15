@@ -1,8 +1,5 @@
--- Runtime history bootstrap without Flyway.
--- Keep Russia (RU), remove Soviet Union / Russian Empire, and keep all history events empty.
-
-DELETE FROM history_event;
-DELETE FROM history_country WHERE country_code IN ('SU', 'RU_EMPIRE');
+-- Runtime history reference-country bootstrap without Flyway.
+-- This script must stay NON-DESTRUCTIVE: do not delete history events or existing countries here.
 
 INSERT INTO history_country (country_code, name_zh, name_en, map_slot, marker_lon, marker_lat)
 VALUES

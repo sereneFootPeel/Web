@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS history_event (
     summary_zh TEXT NOT NULL,
     summary_en TEXT NULL,
     start_year INT NOT NULL,
+    start_date_text VARCHAR(255) NULL,
     CONSTRAINT pk_history_event PRIMARY KEY (id),
     CONSTRAINT fk_history_event_country
         FOREIGN KEY (country_id) REFERENCES history_country (id)
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS history_event (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 SQL
 
-echo "[seed-history] import runtime history seed SQL"
+echo "[seed-history] upsert runtime history reference countries (non-destructive)"
 mysql -u"$DB_ROOT_USER" -p"$DB_ROOT_PASSWORD" "$DB_NAME" < src/main/resources/db/init/history_runtime_seed.sql
 
 echo "[seed-history] verify row counts"
