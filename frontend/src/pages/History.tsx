@@ -41,8 +41,10 @@ function historyYearDistance(a: number, b: number) {
 
 function formatBucketTitle(year: number) {
   if (year > 0) {
-    const start = year - 99
-    return `${start}–${year}`
+    if (year < 100) {
+      return '1–99'
+    }
+    return `${year}–${year + 99}`
   }
   const end = year + 99
   return `${Math.abs(year)}–${Math.abs(end)} BC`

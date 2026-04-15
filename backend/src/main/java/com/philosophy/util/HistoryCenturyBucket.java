@@ -1,7 +1,7 @@
 package com.philosophy.util;
 
 /**
- * 历史页百年分段：公元后按 1901–2000 形式；公元前按整百对齐（如 -500 至 -401）。
+ * 历史页百年分段：公元后按 1900–1999 形式；公元前按整百对齐（如 -500 至 -401）。
  */
 public final class HistoryCenturyBucket {
 
@@ -19,8 +19,10 @@ public final class HistoryCenturyBucket {
             year = 1;
         }
         if (year > 0) {
-            int q = Math.floorDiv(year - 1, 100);
-            int start = q * 100 + 1;
+            if (year < 100) {
+                return new YearRange(1, 99);
+            }
+            int start = Math.floorDiv(year, 100) * 100;
             return new YearRange(start, start + 99);
         }
         int q = Math.floorDiv(year, 100);

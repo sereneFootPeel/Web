@@ -13,6 +13,7 @@ import com.philosophy.service.DataImportService;
 import com.philosophy.service.EmailService;
 import com.philosophy.service.TranslationService;
 import com.philosophy.util.DateUtils;
+import com.philosophy.util.PinyinStringComparator;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
@@ -40,6 +41,7 @@ public class AdminApiController {
     private final DataExportService dataExportService;
     private final EmailService emailService;
     private final TranslationService translationService;
+    private final PinyinStringComparator pinyinComparator = new PinyinStringComparator();
 
     public AdminApiController(UserService userService, PhilosopherService philosopherService,
                              SchoolService schoolService, ContentService contentService,
@@ -250,6 +252,14 @@ public class AdminApiController {
         return null;
     }
 
+    private long nullSafeId(Long id) {
+        return id == null ? Long.MAX_VALUE : id;
+    }
+
+    private int compareByPinyin(String left, String right) {
+        return pinyinComparator.compare(left, right);
+    }
+
     @GetMapping("/dashboard")
     public ResponseEntity<Map<String, Object>> dashboard(Authentication auth) {
         requireAdmin(auth);
@@ -354,6 +364,13 @@ public class AdminApiController {
     public ResponseEntity<Map<String, Object>> listPhilosophers(Authentication auth) {
         requireAdmin(auth);
         List<Philosopher> list = philosopherService.getAllPhilosophers();
+        list.sort((left, right) -> {
+            int byName = compareByPinyin(left == null ? null : left.getName(), right == null ? null : right.getName());
+            if (byName != 0) {
+                return byName;
+            }
+            return Long.compare(nullSafeId(left == null ? null : left.getId()), nullSafeId(right == null ? null : right.getId()));
+        });
         return ResponseEntity.ok(Map.of("philosophers", list.stream().map(this::philosopherMap).toList()));
     }
 
@@ -423,6 +440,13 @@ public class AdminApiController {
     public ResponseEntity<Map<String, Object>> listSchools(Authentication auth) {
         requireAdmin(auth);
         List<School> list = schoolService.getAllSchools();
+        list.sort((left, right) -> {
+            int byName = compareByPinyin(left == null ? null : left.getName(), right == null ? null : right.getName());
+            if (byName != 0) {
+                return byName;
+            }
+            return Long.compare(nullSafeId(left == null ? null : left.getId()), nullSafeId(right == null ? null : right.getId()));
+        });
         return ResponseEntity.ok(Map.of("schools", list.stream().map(this::schoolMap).toList()));
     }
 
@@ -480,6 +504,30 @@ public class AdminApiController {
     public ResponseEntity<Map<String, Object>> listContents(Authentication auth) {
         requireAdmin(auth);
         List<Content> list = contentService.getAllContents();
+        list.sort((left, right) -> {
+            int byPhilosopher = compareByPinyin(
+                left != null && left.getPhilosopher() != null ? left.getPhilosopher().getName() : null,
+                right != null && right.getPhilosopher() != null ? right.getPhilosopher().getName() : null
+            );
+            if (byPhilosopher != 0) {
+                return byPhilosopher;
+            }
+
+            int bySchool = compareByPinyin(
+                left != null && left.getSchool() != null ? left.getSchool().getName() : null,
+                right != null && right.getSchool() != null ? right.getSchool().getName() : null
+            );
+            if (bySchool != 0) {
+                return bySchool;
+            }
+
+            int byContent = compareByPinyin(left == null ? null : left.getContent(), right == null ? null : right.getContent());
+            if (byContent != 0) {
+                return byContent;
+            }
+
+            return Long.compare(nullSafeId(left == null ? null : left.getId()), nullSafeId(right == null ? null : right.getId()));
+        });
         return ResponseEntity.ok(Map.of("contents", list.stream().map(this::contentMap).toList()));
     }
 

@@ -4392,6 +4392,8 @@ public class DataImportService {
 
                 Long id = Long.parseLong(fields[0].trim());
                 Long countryId = Long.parseLong(fields[1].trim());
+                String rawStartText = DateUtils.normalizeHistoricalDateText(normalizeNullableCsvValue(fields.length > 5 ? fields[5] : null));
+                String startValue = normalizeNullableCsvValue(fields[2]);
                 String summaryZh = normalizeNullableCsvValue(fields[3]);
                 if (summaryZh == null) {
                     logger.warn("历史事件缺少中文摘要，跳过: {}", Arrays.toString(fields));
@@ -4408,6 +4410,21 @@ public class DataImportService {
                     continue;
                 }
 
+                Integer startYear = rawStartText == null ? null : DateUtils.parseHistoricalDate(rawStartText);
+                if (startYear == null && startValue != null) {
+                    startYear = DateUtils.parseHistoricalDate(startValue);
+                    if (rawStartText == null && startYear != null && !startValue.matches("^[+-]?\\d+$")) {
+                        rawStartText = DateUtils.normalizeHistoricalDateText(startValue);
+                    }
+                }
+                if (startYear == null) {
+                    logger.warn("历史事件开始日期无法解析，跳过: {}", Arrays.toString(fields));
+                    failed++;
+                    recordFailureDetail(result, sectionName, index, fields,
+                            "开始日期无法解析，支持数值排序值或 1999 - 2000 / 1999.1.1 / 192BC 等格式", null);
+                    continue;
+                }
+
                 final String tableName = "history_event";
                 final String context = "历史事件导入";
                 List<String> replaceColumns = new ArrayList<>();
@@ -4415,9 +4432,10 @@ public class DataImportService {
 
                 addInsertColumn(replaceColumns, replaceParams, tableName, "id", id, context, true);
                 addInsertColumn(replaceColumns, replaceParams, tableName, "country_id", countryId, context, true);
-                addInsertColumn(replaceColumns, replaceParams, tableName, "start_year", Integer.parseInt(fields[2].trim()), context, true);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "start_year", startYear, context, true);
                 addInsertColumn(replaceColumns, replaceParams, tableName, "summary_zh", summaryZh, context, true);
                 addInsertColumn(replaceColumns, replaceParams, tableName, "summary_en", normalizeNullableCsvValue(fields.length > 4 ? fields[4] : null), context, false);
+                addInsertColumn(replaceColumns, replaceParams, tableName, "start_date_text", rawStartText, context, false);
 
                 String replaceSql = "REPLACE INTO " + tableName + " (" + String.join(", ", replaceColumns) + ") VALUES (" +
                         String.join(", ", Collections.nCopies(replaceColumns.size(), "?")) + ")";

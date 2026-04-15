@@ -1,46 +1,38 @@
 # Backend maintenance notes
 
-## Flyway migration rule
+## Runtime SQL initialization
 
-不要删除、重命名、覆盖已经提交过的 Flyway 版本迁移脚本，尤其是 `backend/src/main/resources/db/migration/` 里的 `V...__*.sql` / `V...__*.java` 文件。
+当前后端**不使用 Flyway**。
 
-原因：
+历史模块通过下面两个文件在启动时初始化：
 
-- Flyway 会校验 **版本号 + 描述 + checksum**。
-- 脚本一旦在任意环境执行过，再删掉或改名，后续启动就会出现 `Validate failed`。
-- 新环境建库时，也需要这些旧脚本从头重放；如果删掉，新的数据库将无法完整初始化。
+- `backend/src/main/resources/schema-mysql.sql`：建表
+- `backend/src/main/resources/db/init/history_runtime_seed.sql`：写入保留的历史国家，并清空 `history_event`
 
-正确做法：
+当前运行策略：
 
-1. 旧迁移保持不动。
-2. 需要修复数据或结构时，新建一个更高版本的迁移。
-3. 如果历史上已经误改过脚本，先恢复正确文件；恢复不了时，只在受影响环境执行一次 `repair`，然后继续保持脚本不可变。
+1. 保留 `RU`（俄罗斯）
+2. 删除 `SU`（苏联）与 `RU_EMPIRE`（俄罗斯帝国）
+3. `history_event` 始终清空
 
-## One-time repair for an already-drifted local database
+## Deployment seeding
 
-如果本地已经遇到类似下面的错误：
+部署脚本 `deploy/seed_history_data.sh` 会显式执行同一套 runtime SQL。
 
-- `Validate failed: Migrations have failed validation`
-- `Detected failed migration to version ...`
-- `Migration checksum mismatch ...`
+如果需要调整历史国家初始化内容，请直接修改：
 
-可以在 `backend` 目录运行：
+`backend/src/main/resources/db/init/history_runtime_seed.sql`
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\repair-flyway.ps1
-```
+而不是再新增 Flyway migration。
 
-如果 `8080` 已被占用，脚本默认使用 `8081`，也可以手动指定：
+## Safe cleanup
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\repair-flyway.ps1 -Port 8091
-```
+通常可安全删除的本地产物：
 
-这个脚本只会在这一次启动命令里附带 `--app.flyway.repair-before-migrate=true`，不会把 repair 常开。
+- `backend/target/`
+- `server/target/`
+- `frontend/dist/`
+- 根目录 `target/`
 
-## Why this repo keeps SQL migrations
-
-`db/migration` 下的 SQL 不是“临时脚本”，而是项目数据库历史的一部分，应该跟代码一起保留在 Git 里。
-
-唯一可以按需本地删除的是你自己生成的临时导出文件、一次性草稿文件，**不是** 已经纳入 Flyway 管理的版本迁移。
+这些都是构建生成物，不是源码。
 

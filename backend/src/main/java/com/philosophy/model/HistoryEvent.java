@@ -3,7 +3,6 @@ package com.philosophy.model;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Size;
 
 @Entity
 @Table(name = "history_event")
@@ -27,6 +26,9 @@ public class HistoryEvent {
 
     @Column(name = "start_year", nullable = false)
     private int startYear;
+
+    @Column(name = "start_date_text", length = 255)
+    private String startDateText;
 
     public Long getId() {
         return id;
@@ -66,5 +68,13 @@ public class HistoryEvent {
 
     public void setStartYear(int startYear) {
         this.startYear = startYear;
+    }
+
+    public String getStartDateText() {
+        return startDateText;
+    }
+
+    public void setStartDateText(String startDateText) {
+        this.startDateText = startDateText;
     }
 }

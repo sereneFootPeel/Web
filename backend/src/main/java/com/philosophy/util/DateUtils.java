@@ -8,6 +8,8 @@ import java.util.regex.Matcher;
  */
 public class DateUtils {
 
+    private static final Pattern SIGNED_INTEGER_PATTERN = Pattern.compile("^[+-]?\\d+$");
+
     /**
      * 日期分隔符兼容：支持半角点 "." 与全角点 "．"
      */
@@ -387,8 +389,35 @@ public class DateUtils {
         return year * 10000;
     }
 
+    public static String normalizeHistoricalDateText(String rawText) {
+        if (rawText == null) {
+            return null;
+        }
+        String normalized = rawText.trim().replaceAll("\\s+", " ");
+        return normalized.isEmpty() ? null : normalized;
+    }
+
     public static Integer parseHistoricalDate(String dateStr) {
-        return parseBirthDateFromRange(dateStr);
+        String normalized = normalizeHistoricalDateText(dateStr);
+        if (normalized == null) {
+            return null;
+        }
+        if (SIGNED_INTEGER_PATTERN.matcher(normalized).matches()) {
+            try {
+                return convertYearToDateFormat(Integer.parseInt(normalized));
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return parseBirthDateFromRange(normalized);
+    }
+
+    public static String resolveHistoricalDateLabel(String rawText, Integer yyyymmdd) {
+        String normalized = normalizeHistoricalDateText(rawText);
+        if (normalized != null) {
+            return normalized;
+        }
+        return formatHistoricalDate(yyyymmdd);
     }
 
     public static String formatHistoricalDate(Integer yyyymmdd) {

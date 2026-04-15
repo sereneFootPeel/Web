@@ -39,6 +39,8 @@ public class HistoryService {
             Map.entry("US", Set.of("us", "usa", "unitedstates", "america", "american", "美国", "美利坚", "美利坚合众国")),
             Map.entry("BR", Set.of("br", "brazil", "brazilian", "巴西", "巴西人")),
             Map.entry("RU", Set.of("ru", "russia", "russian", "俄罗斯", "俄国", "俄国人")),
+            Map.entry("RU_EMPIRE", Set.of("ruempire", "russianempire", "tsaristrussia", "imperialrussia", "俄国", "沙俄", "俄罗斯帝国")),
+            Map.entry("SU", Set.of("su", "ussr", "sovietunion", "soviet", "苏联", "苏维埃", "苏维埃联盟", "苏维埃社会主义共和国联盟")),
             Map.entry("CN", Set.of("cn", "china", "chinese", "中国", "中国人", "中华")),
             Map.entry("KR", Set.of("kr", "korea", "southkorea", "southkorean", "韩国", "南韩", "大韩民国", "韩国人")),
             Map.entry("JP", Set.of("jp", "japan", "japanese", "日本", "日本人")),
@@ -48,6 +50,9 @@ public class HistoryService {
             Map.entry("DE", Set.of("de", "germany", "german", "德国", "德意志", "德国人")),
             Map.entry("GR", Set.of("gr", "greece", "greek", "hellenic", "希腊", "希腊人")),
             Map.entry("FR", Set.of("fr", "france", "french", "法国", "法国人")),
+            Map.entry("PT", Set.of("pt", "portugal", "portuguese", "葡萄牙", "葡萄牙人")),
+            Map.entry("ES", Set.of("es", "spain", "spanish", "西班牙", "西班牙人")),
+            Map.entry("AH", Set.of("ah", "austriahungary", "austrohungary", "austrohungarian", "奥匈帝国", "奥匈", "双元帝国")),
             Map.entry("EG", Set.of("eg", "egypt", "egyptian", "埃及", "埃及人")),
             Map.entry("AU", Set.of("au", "australia", "australian", "澳大利亚", "澳洲", "澳大利亚人"))
     );
@@ -110,39 +115,27 @@ public class HistoryService {
         if (countryId == null || eventRepository == null) {
             return List.of();
         }
-        return eventRepository.findByCountry_IdOrderByStartYearAscIdAsc(countryId);
+        List<HistoryEvent> events = eventRepository.findByCountry_IdOrderByStartYearAscIdAsc(countryId);
+        return sortHistoryEvents(events);
     }
 
     @Transactional(readOnly = true)
     public List<HistoryEvent> listEventsForCountryInYearBucket(Long countryId, int year) {
         HistoryCenturyBucket.YearRange bucket = HistoryCenturyBucket.bucketContaining(clampYear(year));
         return listEventsForCountry(countryId).stream()
-                .filter(event -> {
-                    Integer timelineYear = DateUtils.extractTimelineYear(event.getStartYear());
-                    return timelineYear != null && HistoryCenturyBucket.sameBucket(timelineYear, bucket.start());
-                })
+                .filter(event -> belongsToBucket(event, bucket))
                 .toList();
     }
 
     @Transactional(readOnly = true)
     public List<HistoryEvent> listEventsForYearBucket(int year) {
-        HistoryCenturyBucket.YearRange bucket = HistoryCenturyBucket.bucketContaining(clampYear(year));
-        List<HistoryEvent> out = new ArrayList<>();
-        for (HistoryCountry country : listAllCountriesOrdered()) {
-            Long countryId = country.getId();
-            if (countryId == null) {
-                continue;
-            }
-            for (HistoryEvent event : listEventsForCountry(countryId)) {
-                Integer timelineYear = DateUtils.extractTimelineYear(event.getStartYear());
-                if (timelineYear != null && HistoryCenturyBucket.sameBucket(timelineYear, bucket.start())) {
-                    out.add(event);
-                }
-            }
+        if (eventRepository == null) {
+            return List.of();
         }
-        out.sort(Comparator.comparingInt((HistoryEvent e) -> Optional.ofNullable(DateUtils.convertYearToDateFormat(e.getStartYear())).orElse(Integer.MAX_VALUE))
-                .thenComparing(HistoryEvent::getId, Comparator.nullsLast(Long::compareTo)));
-        return out;
+        HistoryCenturyBucket.YearRange bucket = HistoryCenturyBucket.bucketContaining(clampYear(year));
+        return sortHistoryEvents(eventRepository.findAll()).stream()
+                .filter(event -> belongsToBucket(event, bucket))
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -276,6 +269,25 @@ public class HistoryService {
             return contents.subList(0, PHILOSOPHY_CARD_LIMIT);
         }
         return contents;
+    }
+
+    private boolean belongsToBucket(HistoryEvent event, HistoryCenturyBucket.YearRange bucket) {
+        if (event == null || bucket == null) {
+            return false;
+        }
+        Integer timelineYear = DateUtils.extractTimelineYear(event.getStartYear());
+        return timelineYear != null && HistoryCenturyBucket.sameBucket(timelineYear, bucket.start());
+    }
+
+    private List<HistoryEvent> sortHistoryEvents(List<HistoryEvent> events) {
+        if (events == null || events.isEmpty()) {
+            return List.of();
+        }
+        List<HistoryEvent> sorted = new ArrayList<>(events);
+        sorted.sort(Comparator
+                .comparing((HistoryEvent event) -> event == null ? Integer.MAX_VALUE : event.getStartYear())
+                .thenComparing(event -> event == null || event.getId() == null ? Long.MAX_VALUE : event.getId()));
+        return sorted;
     }
 
     static boolean philosopherBelongsToCountry(Philosopher philosopher, HistoryCountry country) {

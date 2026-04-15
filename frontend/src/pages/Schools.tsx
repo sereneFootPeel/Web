@@ -248,19 +248,6 @@ export function Schools() {
   }, [selectedId])
 
   const tree = buildTree(nodes)
-  const visibleTreeNodeCount = useMemo(() => {
-    const countVisible = (parentId = 0): number => {
-      const children = byParent.get(parentId) || []
-      return children.reduce((total, childId) => {
-        const childCount = expandedIds.has(childId) ? countVisible(childId) : 0
-        return total + 1 + childCount
-      }, 0)
-    }
-
-    return countVisible()
-  }, [byParent, expandedIds])
-
-  const treeCardHeight = `min(${Math.max(240, visibleTreeNodeCount * 36 + 32)}px, calc(100vh - 6rem))`
 
   const loadMore = async () => {
     if (!selectedId || loadingContents || !hasMore) return
@@ -278,13 +265,12 @@ export function Schools() {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <aside className="md:col-span-1">
+      <aside className="md:col-span-1 self-start">
         <div
           className="sticky top-20 rounded-lg border p-4 overflow-y-auto"
           style={{
             borderColor: 'var(--border-primary)',
             background: 'var(--bg-primary)',
-            height: treeCardHeight,
             maxHeight: 'calc(100vh - 6rem)',
           }}
         >

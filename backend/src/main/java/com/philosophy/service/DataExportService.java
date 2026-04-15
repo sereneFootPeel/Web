@@ -295,15 +295,16 @@ public class DataExportService {
 
             // 导出历史事件数据
             pw.println("历史事件数据");
-            pw.println("ID,国家ID,开始年份,中文摘要,英文摘要");
+            pw.println("ID,国家ID,开始年份,中文摘要,英文摘要,开始日期原文");
             List<HistoryEvent> historyEvents = historyEventRepository.findAll();
             for (HistoryEvent event : historyEvents) {
-                pw.printf("%d,%s,%d,%s,%s%n",
+                pw.printf("%d,%s,%d,%s,%s,%s%n",
                     event.getId(),
                     event.getCountry() != null ? event.getCountry().getId().toString() : "",
                     event.getStartYear(),
                     escapeCsv(event.getSummaryZh()),
-                    escapeCsv(event.getSummaryEn())
+                    escapeCsv(event.getSummaryEn()),
+                    escapeCsv(event.getStartDateText())
                 );
             }
             pw.println();

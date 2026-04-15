@@ -21,12 +21,29 @@ CREATE TABLE IF NOT EXISTS history_event (
     summary_zh TEXT NOT NULL,
     summary_en TEXT NULL,
     start_year INT NOT NULL,
+    start_date_text VARCHAR(255) NULL,
     CONSTRAINT pk_history_event PRIMARY KEY (id),
     CONSTRAINT fk_history_event_country
         FOREIGN KEY (country_id) REFERENCES history_country (id)
         ON DELETE CASCADE,
     KEY idx_history_event_country_year (country_id, start_year, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET @history_event_has_start_date_text := (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'history_event'
+      AND COLUMN_NAME = 'start_date_text'
+);
+SET @history_event_add_start_date_text_sql := IF(
+    @history_event_has_start_date_text = 0,
+    'ALTER TABLE history_event ADD COLUMN start_date_text VARCHAR(255) NULL AFTER start_year',
+    'SELECT 1'
+);
+PREPARE history_event_add_start_date_text_stmt FROM @history_event_add_start_date_text_sql;
+EXECUTE history_event_add_start_date_text_stmt;
+DEALLOCATE PREPARE history_event_add_start_date_text_stmt;
 
 CREATE TABLE IF NOT EXISTS history_philosophy_bucket_cache (
     id BIGINT NOT NULL AUTO_INCREMENT,

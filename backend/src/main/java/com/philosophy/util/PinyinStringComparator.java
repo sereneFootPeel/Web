@@ -10,7 +10,13 @@ public class PinyinStringComparator implements Comparator<String> {
     public int compare(String a, String b) {
         String sa = toComparableKey(a);
         String sb = toComparableKey(b);
-        return sa.compareTo(sb);
+        int result = sa.compareTo(sb);
+        if (result != 0) {
+            return result;
+        }
+        String originalA = a == null ? "" : a.trim();
+        String originalB = b == null ? "" : b.trim();
+        return originalA.compareToIgnoreCase(originalB);
     }
 
     public String toComparableKey(String name) {
@@ -19,13 +25,16 @@ public class PinyinStringComparator implements Comparator<String> {
         }
         StringBuilder key = new StringBuilder();
         for (char c : name.toCharArray()) {
+            if (Character.isWhitespace(c)) {
+                continue;
+            }
             if (isChinese(c)) {
-                key.append(Pinyin.toPinyin(c).toLowerCase().charAt(0));
+                key.append(Pinyin.toPinyin(c).toLowerCase()).append(' ');
             } else {
                 key.append(Character.toLowerCase(c));
             }
         }
-        return key.toString();
+        return key.toString().trim();
     }
 
     private boolean isChinese(char c) {

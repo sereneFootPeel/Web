@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -43,7 +44,7 @@ class HistoryServiceCountryMatchingTest {
 
         HistoryService service = new HistoryService(countryRepository, eventRepository, null, null);
 
-        assertEquals(List.of(gb), service.listVisibleCountriesForYear(2000));
+        assertEquals(List.of(gb), service.listVisibleCountriesForYear(1900));
     }
 
     @Test
@@ -96,5 +97,37 @@ class HistoryServiceCountryMatchingTest {
 
         assertEquals(List.of(101L), gbIds);
         assertEquals(List.of(102L), usIds);
+    }
+
+    @Test
+    void aliasesMatchNewMarkerCountriesAndHistoricalEntities() {
+        Philosopher portuguesePhilosopher = new Philosopher();
+        portuguesePhilosopher.setNationality("Portuguese");
+        HistoryCountry portugal = new HistoryCountry();
+        portugal.setCountryCode("PT");
+        portugal.setNameZh("葡萄牙");
+
+        Philosopher sovietPhilosopher = new Philosopher();
+        sovietPhilosopher.setNationality("苏联");
+        HistoryCountry sovietUnion = new HistoryCountry();
+        sovietUnion.setCountryCode("SU");
+        sovietUnion.setNameZh("俄罗斯（苏联）");
+
+        Philosopher austroHungarianPhilosopher = new Philosopher();
+        austroHungarianPhilosopher.setNationality("Austro-Hungarian");
+        HistoryCountry austriaHungary = new HistoryCountry();
+        austriaHungary.setCountryCode("AH");
+        austriaHungary.setNameZh("奥匈帝国");
+
+        Philosopher imperialRussianPhilosopher = new Philosopher();
+        imperialRussianPhilosopher.setNationality("俄国");
+        HistoryCountry russianEmpire = new HistoryCountry();
+        russianEmpire.setCountryCode("RU_EMPIRE");
+        russianEmpire.setNameZh("俄国");
+
+        assertTrue(HistoryService.philosopherBelongsToCountry(portuguesePhilosopher, portugal));
+        assertTrue(HistoryService.philosopherBelongsToCountry(sovietPhilosopher, sovietUnion));
+        assertTrue(HistoryService.philosopherBelongsToCountry(austroHungarianPhilosopher, austriaHungary));
+        assertTrue(HistoryService.philosopherBelongsToCountry(imperialRussianPhilosopher, russianEmpire));
     }
 }

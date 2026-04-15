@@ -70,6 +70,7 @@ class DataExportServiceHistoryExportTest {
         event.setId(10L);
         event.setCountry(country);
         event.setStartYear(1776);
+        event.setStartDateText("1776 - 1783");
         event.setSummaryZh("独立宣言");
         event.setSummaryEn("Declaration of Independence");
 
@@ -99,8 +100,8 @@ class DataExportServiceHistoryExportTest {
         assertTrue(csv.contains("ID,国家代码,中文名称,英文名称,地图槽位,标记经度,标记纬度,创建时间,更新时间"));
         assertTrue(csv.contains("1,US,美国,United States,NA_NORTH,-95.7129,37.0902"));
         assertTrue(csv.contains("历史事件数据"));
-        assertTrue(csv.contains("ID,国家ID,开始年份,中文摘要,英文摘要"));
-        assertTrue(csv.contains("10,1,1776,独立宣言,Declaration of Independence"));
+        assertTrue(csv.contains("ID,国家ID,开始年份,中文摘要,英文摘要,开始日期原文"));
+        assertTrue(csv.contains("10,1,1776,独立宣言,Declaration of Independence,1776 - 1783"));
     }
 }
 

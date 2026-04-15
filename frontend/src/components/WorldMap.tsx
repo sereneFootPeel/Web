@@ -4,8 +4,7 @@ import { feature } from 'topojson-client'
 import type { Feature, FeatureCollection } from 'geojson'
 import { useLanguage } from '../contexts/LanguageContext'
 
-const WORLD_TOPO_URL =
-  'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json'
+const WORLD_TOPO_URL = `${import.meta.env.BASE_URL}maps/countries-110m.json`
 
 const MAP_W = 960
 const MAP_H = 480

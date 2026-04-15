@@ -54,8 +54,8 @@ class DataImportServiceHistorySupportTest {
             ID,国家代码,中文名称,英文名称,地图槽位,标记经度,标记纬度,创建时间,更新时间
             1,US,美国,United States,NA_NORTH,-95.7129,37.0902,2026-04-03T00:00:00,2026-04-03T00:00:00
             历史事件数据
-            ID,国家ID,开始年份,中文摘要,英文摘要
-            10,1,1776,独立宣言,Declaration of Independence
+            ID,国家ID,开始年份,中文摘要,英文摘要,开始日期原文
+            10,1,1776,独立宣言,Declaration of Independence,1776 - 1783
             """;
         DataImportService.ImportResult result = service.importCsvData(new MockMultipartFile(
             "file",
@@ -70,6 +70,7 @@ class DataImportServiceHistorySupportTest {
         assertEquals(1, service.importedHistoryEventData.size());
         assertEquals("US", service.importedHistoryCountryData.get(0)[1]);
         assertEquals("1776", service.importedHistoryEventData.get(0)[2]);
+        assertEquals("1776 - 1783", service.importedHistoryEventData.get(0)[5]);
     }
     @Test
     void clearTablesInOrder_includesNewHistoryTables() {

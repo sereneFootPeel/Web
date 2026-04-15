@@ -1,0 +1,6 @@
+﻿
+LocalAddress LocalPort OwningProcess
+------------ --------- -------------
+::                8080         32644
+
+
