@@ -45,8 +45,6 @@ function formatBucketTitle(year: number) {
 
 export function History() {
   const { language, t } = useLanguage()
-  // This page relies heavily on absolute positioning, so it must own a stable viewport height.
-  const historyViewportHeight = 'calc(100dvh - 6rem)'
   const [year, setYear] = useState(() => normalizeToHistoryCenturyAnchor(1950))
   const [debouncedYear, setDebouncedYear] = useState(() => normalizeToHistoryCenturyAnchor(1950))
   useEffect(() => {
@@ -295,6 +293,17 @@ export function History() {
   }, [panelContext, closePanel])
 
   useEffect(() => {
+    const prevHtmlOverflow = document.documentElement.style.overflow
+    const prevBodyOverflow = document.body.style.overflow
+    document.documentElement.style.overflow = 'hidden'
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.documentElement.style.overflow = prevHtmlOverflow
+      document.body.style.overflow = prevBodyOverflow
+    }
+  }, [])
+
+  useEffect(() => {
     if (panelContext == null) return
     const prev = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -309,8 +318,8 @@ export function History() {
       style={{
         position: 'relative',
         flex: 1,
-        minHeight: 'calc(100vh - 6rem)',
-        height: historyViewportHeight,
+        minHeight: 0,
+        height: '100%',
         width: '100%',
         display: 'flex',
         flexDirection: 'column',
@@ -376,11 +385,11 @@ export function History() {
         }}
       >
         <aside
-          className="pointer-events-auto my-3 ml-3 flex min-h-0 items-stretch overflow-hidden"
+          className="pointer-events-auto ml-3 flex min-h-0 items-stretch overflow-hidden"
           style={{
             pointerEvents: 'auto',
             display: 'flex',
-            height: 'calc(100% - 1.5rem)',
+            height: '100%',
             minHeight: 0,
             width: 'min(12.5rem, calc(100vw - 1.5rem))',
             maxWidth: '42vw',

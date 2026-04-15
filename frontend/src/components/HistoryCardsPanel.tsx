@@ -335,7 +335,7 @@ export function HistoryCardsPanel({
     <div className={shellClass} aria-live="polite" aria-label={title || t('地区详情', 'Region details')}>
       <div
         ref={scrollerRef}
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-visible overscroll-contain px-2 py-3 sm:px-4 sm:py-4"
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-visible overscroll-contain px-2 py-2 sm:px-3 sm:py-2.5"
         onScroll={handleTimelineScroll}
       >
         {loading ? (
@@ -363,7 +363,7 @@ export function HistoryCardsPanel({
             </div>
           ) : (
             <>
-              <ul className="mx-auto flex w-full max-w-3xl flex-col gap-6" ref={listRef}>
+              <ul className="mx-auto flex w-full max-w-3xl flex-col gap-4" ref={listRef}>
               {timelineItems.map((item) => {
                 const itemYear = item.sortDate ?? (item.kind === 'event' ? item.startYear : 0)
                 const timelineYear = extractTimelineYear(itemYear)

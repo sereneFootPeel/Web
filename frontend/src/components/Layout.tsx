@@ -5,6 +5,7 @@ import { Footer } from './Footer'
 export function Layout() {
   const location = useLocation()
   const isHome = location.pathname === '/'
+  const isHistory = location.pathname.startsWith('/history')
 
   // 首页：仅显示立方体和欢迎按钮，全屏无 Header/Footer
   if (isHome) {
@@ -20,17 +21,21 @@ export function Layout() {
 
   return (
     <div
-      className="min-h-screen flex flex-col"
+      className={isHistory ? 'h-dvh overflow-hidden flex flex-col' : 'min-h-screen flex flex-col'}
       style={{ backgroundColor: 'var(--bg-secondary)' }}
     >
       <Header />
       <main
-        className="flex-grow container mx-auto px-4 py-4 sm:py-8"
-        style={{ paddingTop: 'calc(4rem + 1rem)' }}
+        className={
+          isHistory
+            ? 'flex-1 min-h-0 w-full overflow-hidden pt-16'
+            : 'flex-grow container mx-auto px-4 py-4 sm:py-8'
+        }
+        style={isHistory ? undefined : { paddingTop: 'calc(4rem + 1rem)' }}
       >
         <Outlet />
       </main>
-      <Footer />
+      {!isHistory ? <Footer /> : null}
     </div>
   )
 }
