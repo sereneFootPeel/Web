@@ -48,7 +48,7 @@ function TreeNode({
 
   return (
     <div className="pl-2" style={{ marginLeft: level * 12 }}>
-      <div className="flex w-full items-start justify-between gap-2 rounded py-1 text-left">
+      <div className="flex w-full items-start justify-between gap-1 rounded py-0.5 text-left">
         <button
           onClick={() => {
             if (hasChildren) {
@@ -76,11 +76,11 @@ function TreeNode({
               e.stopPropagation()
               onToggle(node.id)
             }}
-            className="shrink-0 rounded px-1 py-0.5 hover:bg-black/5 cursor-pointer"
+            className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded leading-none hover:bg-black/5 cursor-pointer"
             title={open ? t('收起', 'Collapse') : t('展开', 'Expand')}
           >
             <span
-              className="text-xs inline-block"
+              className="inline-block text-xs leading-none"
               style={{
                 color: isSelected ? '#111827' : 'var(--text-secondary)',
                 transform: open ? 'rotate(90deg)' : 'rotate(0deg)',
