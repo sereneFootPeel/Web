@@ -4,12 +4,14 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
-import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfException;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -22,6 +24,7 @@ import org.springframework.core.Ordered;
 import org.springframework.util.StringUtils;
 import jakarta.servlet.Filter;
 import com.philosophy.security.DeviceIdFilter;
+import com.philosophy.security.JwtAuthenticationFilter;
 import com.philosophy.security.CustomAuthenticationFailureHandler;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -46,15 +49,18 @@ public class SecurityConfig {
     private final CustomAuthenticationFailureHandler customAuthenticationFailureHandler;
     private final IpLocationService ipLocationService;
     private final LanguageUtil languageUtil;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
     
     public SecurityConfig(com.philosophy.service.UserService userService,
                           CustomAuthenticationFailureHandler customAuthenticationFailureHandler,
                           IpLocationService ipLocationService,
-                          LanguageUtil languageUtil) {
+                          LanguageUtil languageUtil,
+                          JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.userService = userService;
         this.customAuthenticationFailureHandler = customAuthenticationFailureHandler;
         this.ipLocationService = ipLocationService;
         this.languageUtil = languageUtil;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
     @Bean
@@ -67,16 +73,8 @@ public class SecurityConfig {
         
         http
             .cors(cors -> {})
-            .csrf(csrf -> csrf
-                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler())
-                .ignoringRequestMatchers(
-                    "/admin/data-import/upload",
-                    "/admin/data-import/repair-authors",
-                    "/admin/data-import/api/upload",
-                    "/admin/data-import/api/repair-authors"
-                )
-            )
+            .csrf(AbstractHttpConfigurer::disable)
+            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .headers(headers -> {
                 headers.contentTypeOptions(contentTypeOptions -> {});
                 headers.frameOptions(frameOptions -> frameOptions.sameOrigin());
@@ -112,7 +110,8 @@ public class SecurityConfig {
                 logger.info("Incoming request: {} {}", method, uri);
                 
                 chain.doFilter(request, response);
-            }, org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class)
+            }, UsernamePasswordAuthenticationFilter.class)
+            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(authorize -> authorize
                 // 公开的随机名句API
                 .requestMatchers(HttpMethod.GET, "/api/quotes/random").permitAll()
@@ -151,7 +150,7 @@ public class SecurityConfig {
             .logout(logout -> logout
                 .logoutUrl("/logout")
                 .logoutSuccessUrl("/")
-                .deleteCookies("remember-me")
+                .deleteCookies("JSESSIONID", "remember-me")
                 .permitAll()
             )
             .exceptionHandling(exceptions -> exceptions
@@ -168,14 +167,9 @@ public class SecurityConfig {
                     if (accessDeniedException instanceof CsrfException) {
                         response.getWriter().write("{\"success\":false,\"message\":\"CSRF token 无效或缺失\"}");
                     } else {
-                        response.getWriter().write("{\"success\":false,\"message\":\"需要管理员权限\"}");
+                        response.getWriter().write("{\"success\":false,\"message\":\"权限不足\"}");
                     }
                 }, apiRequestMatcher)
-            )
-            // 记住我：勾选后登录状态保持 24 小时（1 天），关闭浏览器后仍有效
-            .rememberMe(remember -> remember
-                .key("philosophy-remember-me-key")
-                .tokenValiditySeconds(86400)
             );
         
         return http.build();
@@ -259,22 +253,4 @@ public class SecurityConfig {
         };
     }
 
-    private static final class SpaCsrfTokenRequestHandler extends CsrfTokenRequestAttributeHandler {
-        private final CsrfTokenRequestHandler plain = new CsrfTokenRequestAttributeHandler();
-        private final CsrfTokenRequestHandler xor = new XorCsrfTokenRequestAttributeHandler();
-
-        @Override
-        public void handle(HttpServletRequest request, HttpServletResponse response, Supplier<CsrfToken> csrfToken) {
-            this.xor.handle(request, response, csrfToken);
-            csrfToken.get();
-        }
-
-        @Override
-        public String resolveCsrfTokenValue(HttpServletRequest request, CsrfToken csrfToken) {
-            String headerValue = request.getHeader(csrfToken.getHeaderName());
-            return StringUtils.hasText(headerValue)
-                ? this.plain.resolveCsrfTokenValue(request, csrfToken)
-                : this.xor.resolveCsrfTokenValue(request, csrfToken);
-        }
-    }
 }

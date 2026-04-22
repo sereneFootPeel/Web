@@ -14,7 +14,6 @@ import org.springframework.web.bind.annotation.ResponseBody;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -104,9 +103,7 @@ public class LanguageController {
             lang = "zh"; // 默认中文
         }
         
-        // 将语言设置保存到Session
-        HttpSession session = request.getSession();
-        session.setAttribute("language", lang);
+        languageUtil.setLanguage(request, lang);
         
         // 设置Cookie以便客户端JavaScript可以读取
         jakarta.servlet.http.Cookie languageCookie = new jakarta.servlet.http.Cookie("philosophy_language", lang);

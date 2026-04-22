@@ -3,6 +3,7 @@ package com.philosophy.util;
 import com.philosophy.model.User;
 import com.philosophy.service.UserService;
 import com.philosophy.service.IpLocationService;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.slf4j.Logger;
@@ -40,11 +41,19 @@ public class LanguageUtil {
             return "zh"; // 默认中文
         }
         
-        HttpSession session = request.getSession();
-        String language = (String) session.getAttribute("language");
+        HttpSession session = request.getSession(false);
+        String language = session != null ? (String) session.getAttribute("language") : null;
         
         // 如果Session中已有语言设置，直接返回
         if (language != null && !language.trim().isEmpty()) {
+            return language;
+        }
+
+        language = getLanguageFromCookie(request);
+        if (language != null) {
+            if (session != null) {
+                session.setAttribute("language", language);
+            }
             return language;
         }
 
@@ -54,7 +63,9 @@ public class LanguageUtil {
                 User user = userService.findByUsername(request.getUserPrincipal().getName());
                 if (user != null && user.getLanguage() != null && !user.getLanguage().trim().isEmpty()) {
                     language = user.getLanguage();
-                    session.setAttribute("language", language);
+                    if (session != null) {
+                        session.setAttribute("language", language);
+                    }
                     return language;
                 }
             }
@@ -68,13 +79,17 @@ public class LanguageUtil {
             language = isForeign ? "en" : "zh";
             
             // 将默认语言设置保存到Session，避免重复查询
-            session.setAttribute("language", language);
+            if (session != null) {
+                session.setAttribute("language", language);
+            }
             
             logger.debug("根据IP地址设置默认语言: {} (IP是否国外: {})", language, isForeign);
         } catch (Exception e) {
             logger.warn("根据IP地址判断语言失败，使用默认中文", e);
             language = "zh";
-            session.setAttribute("language", language);
+            if (session != null) {
+                session.setAttribute("language", language);
+            }
         }
         
         return language;
@@ -91,8 +106,8 @@ public class LanguageUtil {
             return null;
         }
         
-        HttpSession session = request.getSession();
-        return (String) session.getAttribute("language");
+        HttpSession session = request.getSession(false);
+        return session != null ? (String) session.getAttribute("language") : null;
     }
     
     /**
@@ -106,8 +121,27 @@ public class LanguageUtil {
             return;
         }
         
-        HttpSession session = request.getSession();
-        session.setAttribute("language", language);
+        HttpSession session = request.getSession(false);
+        if (session != null) {
+            session.setAttribute("language", language);
+        }
+    }
+
+    private String getLanguageFromCookie(HttpServletRequest request) {
+        Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return null;
+        }
+        for (Cookie cookie : cookies) {
+            if (cookie == null || !"philosophy_language".equals(cookie.getName())) {
+                continue;
+            }
+            String value = cookie.getValue();
+            if ("zh".equals(value) || "en".equals(value)) {
+                return value;
+            }
+        }
+        return null;
     }
 }
 

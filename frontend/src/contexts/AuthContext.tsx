@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react'
-import { fetchWithCredentials } from '../api/client'
+import { clearAuthToken, fetchWithCredentials, setAuthToken } from '../api/client'
 
 export type User = {
   id: number
@@ -35,12 +35,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetchWithCredentials('/api/auth/me')
       const data = await res.json()
+      if (!data.authenticated) {
+        clearAuthToken()
+      }
       setState({
         user: data.authenticated && data.user ? data.user : null,
         loading: false,
         authenticated: !!data.authenticated,
       })
     } catch {
+      clearAuthToken()
       setState({ user: null, loading: false, authenticated: false })
     }
   }, [])
@@ -57,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     const data = await res.json()
     if (data.success) {
+      setAuthToken(typeof data.token === 'string' ? data.token : null)
       setState({ user: data.user, loading: false, authenticated: true })
       return { success: true }
     }
@@ -65,6 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await fetchWithCredentials('/api/auth/logout', { method: 'POST' })
+    clearAuthToken()
     setState({ user: null, loading: false, authenticated: false })
   }, [])
 
@@ -76,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
     const data = await res.json()
     if (data.success) {
+      setAuthToken(typeof data.token === 'string' ? data.token : null)
       setState({ user: data.user, loading: false, authenticated: true })
       return { success: true }
     }

@@ -5,20 +5,17 @@ import com.philosophy.service.UserService;
 import com.philosophy.service.VerificationCodeService;
 import com.philosophy.service.EmailService;
 import com.philosophy.service.RateLimitingService;
+import com.philosophy.security.JwtService;
 import com.philosophy.util.LanguageUtil;
 import org.springframework.http.ResponseEntity;
 
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.web.csrf.CsrfToken;
-import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.servlet.http.HttpSession;
 import jakarta.servlet.http.Cookie;
 import java.util.HashMap;
 import java.util.Map;
@@ -33,19 +30,22 @@ public class AuthApiController {
     private final EmailService emailService;
     private final RateLimitingService rateLimitingService;
     private final LanguageUtil languageUtil;
+    private final JwtService jwtService;
 
     public AuthApiController(org.springframework.security.authentication.AuthenticationManager authenticationManager,
                              UserService userService,
                              VerificationCodeService verificationCodeService,
                              EmailService emailService,
                              RateLimitingService rateLimitingService,
-                             LanguageUtil languageUtil) {
+                             LanguageUtil languageUtil,
+                             JwtService jwtService) {
         this.authenticationManager = authenticationManager;
         this.userService = userService;
         this.verificationCodeService = verificationCodeService;
         this.emailService = emailService;
         this.rateLimitingService = rateLimitingService;
         this.languageUtil = languageUtil;
+        this.jwtService = jwtService;
     }
 
     @PostMapping("/send-code")
@@ -111,16 +111,14 @@ public class AuthApiController {
         try {
             Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(username, password));
-            SecurityContext context = SecurityContextHolder.createEmptyContext();
-            context.setAuthentication(auth);
-            SecurityContextHolder.setContext(context);
-
-            HttpSession session = request.getSession(true);
-            session.setAttribute(HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY, context);
+            SecurityContextHolder.getContext().setAuthentication(auth);
 
             User user = userService.findByUsername(username);
             syncLanguagePreference(user, request, response);
             res.put("success", true);
+            res.put("token", jwtService.generateToken(user));
+            res.put("tokenType", "Bearer");
+            res.put("expiresIn", jwtService.getAccessTokenExpirationSeconds());
             res.put("user", toUserDto(user));
             return ResponseEntity.ok(res);
         } catch (org.springframework.security.authentication.BadCredentialsException e) {
@@ -131,12 +129,10 @@ public class AuthApiController {
     }
 
     @GetMapping("/csrf")
-    public ResponseEntity<Map<String, Object>> csrf(CsrfToken csrfToken) {
+    public ResponseEntity<Map<String, Object>> csrf() {
         Map<String, Object> res = new HashMap<>();
         res.put("success", true);
-        res.put("headerName", csrfToken.getHeaderName());
-        res.put("parameterName", csrfToken.getParameterName());
-        res.put("token", csrfToken.getToken());
+        res.put("message", "JWT auth enabled; CSRF token is not required for /api requests");
         return ResponseEntity.ok(res);
     }
 
@@ -162,8 +158,7 @@ public class AuthApiController {
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Map<String, Object>> logout(HttpServletRequest request) {
-        request.getSession().invalidate();
+    public ResponseEntity<Map<String, Object>> logout() {
         SecurityContextHolder.clearContext();
         Map<String, Object> res = new HashMap<>();
         res.put("success", true);
@@ -227,6 +222,9 @@ public class AuthApiController {
         syncLanguagePreference(saved, request, response);
         res.put("success", true);
         res.put("message", "注册成功");
+        res.put("token", jwtService.generateToken(saved));
+        res.put("tokenType", "Bearer");
+        res.put("expiresIn", jwtService.getAccessTokenExpirationSeconds());
         res.put("user", toUserDto(saved));
         return ResponseEntity.ok(res);
     }
@@ -243,8 +241,6 @@ public class AuthApiController {
             user.setLanguage(language);
             userService.updateUser(user);
         }
-        HttpSession session = request.getSession(true);
-        session.setAttribute("language", language);
 
         Cookie languageCookie = new Cookie("philosophy_language", language);
         languageCookie.setPath("/");

@@ -1,7 +1,5 @@
 const API_BASE = '/api'
-
-const CSRF_COOKIE_NAME = 'XSRF-TOKEN'
-const CSRF_HEADER_NAME = 'X-XSRF-TOKEN'
+const AUTH_TOKEN_STORAGE_KEY = 'philosophy_jwt'
 
 export type ApiResponse<T> = {
   success: boolean
@@ -10,47 +8,41 @@ export type ApiResponse<T> = {
   [key: string]: unknown
 }
 
-function readCookie(name: string): string | null {
-  if (typeof document === 'undefined') return null
-  const prefix = `${encodeURIComponent(name)}=`
-  const matched = document.cookie
-    .split(';')
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(prefix))
-
-  if (!matched) return null
-  return decodeURIComponent(matched.slice(prefix.length))
+function getStorage(): Storage | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
 }
 
-function isMutationMethod(method?: string) {
-  const upper = (method ?? 'GET').toUpperCase()
-  return upper === 'POST' || upper === 'PUT' || upper === 'PATCH' || upper === 'DELETE'
+export function getAuthToken(): string | null {
+  return getStorage()?.getItem(AUTH_TOKEN_STORAGE_KEY) ?? null
 }
 
-async function ensureCsrfToken(): Promise<string | null> {
-  const existing = readCookie(CSRF_COOKIE_NAME)
-  if (existing) return existing
+export function setAuthToken(token: string | null) {
+  const storage = getStorage()
+  if (!storage) return
 
-  const res = await fetch(`${API_BASE}/auth/csrf`, {
-    method: 'GET',
-    credentials: 'include',
-    headers: {
-      Accept: 'application/json',
-    },
-  })
+  if (token && token.trim()) {
+    storage.setItem(AUTH_TOKEN_STORAGE_KEY, token)
+    return
+  }
 
-  if (!res.ok) return null
-  return readCookie(CSRF_COOKIE_NAME)
+  storage.removeItem(AUTH_TOKEN_STORAGE_KEY)
 }
 
-async function buildSecureHeaders(headers?: HeadersInit, method?: string) {
+export function clearAuthToken() {
+  setAuthToken(null)
+}
+
+async function buildSecureHeaders(headers?: HeadersInit) {
   const next = new Headers(headers)
 
-  if (isMutationMethod(method) && !next.has(CSRF_HEADER_NAME)) {
-    const token = await ensureCsrfToken()
-    if (token) {
-      next.set(CSRF_HEADER_NAME, token)
-    }
+  const token = getAuthToken()
+  if (token && !next.has('Authorization')) {
+    next.set('Authorization', `Bearer ${token}`)
   }
 
   return next
@@ -58,7 +50,7 @@ async function buildSecureHeaders(headers?: HeadersInit, method?: string) {
 
 export async function fetchWithCredentials(input: RequestInfo | URL, options?: RequestInit): Promise<Response> {
   const method = (options?.method ?? 'GET').toUpperCase()
-  const headers = await buildSecureHeaders(options?.headers, method)
+  const headers = await buildSecureHeaders(options?.headers)
 
   return fetch(input, {
     ...options,
