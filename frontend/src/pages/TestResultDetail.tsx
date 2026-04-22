@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
+import { fetchWithCredentials } from '../api/client'
 import { MBTI_DIMENSIONS, getMbtiPolesLabel, getMbtiTypeDescription, type SupportedLanguage } from '../utils/mbti'
 
 type ScoreRow =
@@ -63,7 +64,7 @@ export function TestResultDetail() {
 
     setLoading(true)
     setError(null)
-    fetch(`/api/test-results/${id}`, { credentials: 'include' })
+    fetchWithCredentials(`/api/test-results/${id}`)
       .then(async (r) => {
         if (!r.ok) throw new Error(t('加载失败', 'Failed to load'))
         const body = await r.json()

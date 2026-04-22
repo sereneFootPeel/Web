@@ -125,6 +125,9 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/me").permitAll()
                 // 允许所有用户访问的API（SPA 前端调用）
                 .requestMatchers("/api/schools/**", "/api/philosophers/**", "/api/search/**", "/api/contents/**").permitAll()
+                // 公开用户主页和公开测试结果详情，是否可见由控制器继续判断
+                .requestMatchers(HttpMethod.GET, "/api/user/profile/*").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/test-results/*", "/api/test-results/*/scores").permitAll()
                 // 点赞 API：公开读取，写操作需认证
                 .requestMatchers(HttpMethod.GET, "/api/likes/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/likes/toggle").authenticated()

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { fetchWithCredentials } from '../api/client'
 
 type Dashboard = {
   philosophersCount: number
@@ -13,7 +14,7 @@ export function AdminDashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/admin/dashboard', { credentials: 'include' })
+    fetchWithCredentials('/api/admin/dashboard')
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then(setData)
       .catch(() => setData(null))

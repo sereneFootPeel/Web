@@ -66,7 +66,7 @@ export function UserProfile() {
     setLoading(true)
     setError(null)
     const url = id ? `/api/user/profile/${id}` : '/api/user/profile'
-    fetch(url, { credentials: 'include' })
+    fetchWithCredentials(url)
       .then(async (r) => {
         if (r.redirected && r.url.includes('/login')) {
           navigate('/login?redirect=' + encodeURIComponent(window.location.pathname))
