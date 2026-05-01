@@ -8,8 +8,9 @@ import {
 } from '../api/philosophy'
 import { useLanguage } from '../contexts/LanguageContext'
 import { ContentCard } from '../components/ContentCard'
+import { comparePinyinText } from '../utils/pinyinSort'
 
-function buildTree(nodes: SchoolNode[]): SchoolNode[] {
+function buildTree(nodes: SchoolNode[], language: 'zh' | 'en' = 'zh'): SchoolNode[] {
   const byParent = new Map<number | null, SchoolNode[]>()
   for (const n of nodes) {
     const key = n.parentId ?? 0
@@ -17,7 +18,13 @@ function buildTree(nodes: SchoolNode[]): SchoolNode[] {
     byParent.get(key)!.push(n)
   }
   for (const list of byParent.values()) {
-    list.sort((a, b) => (a.sortKey || '').localeCompare(b.sortKey || ''))
+    list.sort((a, b) => {
+      if (language === 'zh') {
+        return comparePinyinText(a.displayName, b.displayName)
+      } else {
+        return (a.nameEn || a.displayName).localeCompare(b.nameEn || b.displayName, 'en', { sensitivity: 'base' })
+      }
+    })
   }
   return byParent.get(0) ?? []
 }
@@ -125,7 +132,7 @@ function collectAncestorIds(id: number, nodes: SchoolNode[]): number[] {
 }
 
 export function Schools() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const [searchParams, setSearchParams] = useSearchParams()
   const skipNextUrlSync = useRef(false)
   const [nodes, setNodes] = useState<SchoolNode[]>([])
@@ -247,7 +254,7 @@ export function Schools() {
       .finally(() => setLoadingContents(false))
   }, [selectedId])
 
-  const tree = buildTree(nodes)
+  const tree = useMemo(() => buildTree(nodes, language), [nodes, language])
 
   const loadMore = async () => {
     if (!selectedId || loadingContents || !hasMore) return
