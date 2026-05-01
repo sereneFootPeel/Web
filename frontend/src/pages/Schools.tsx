@@ -10,28 +10,29 @@ import { useLanguage } from '../contexts/LanguageContext'
 import { ContentCard } from '../components/ContentCard'
 import { comparePinyinText } from '../utils/pinyinSort'
 
-function buildTree(nodes: SchoolNode[], language: 'zh' | 'en' = 'zh'): SchoolNode[] {
-  const byParent = new Map<number | null, SchoolNode[]>()
-  for (const n of nodes) {
-    const key = n.parentId ?? 0
-    if (!byParent.has(key)) byParent.set(key, [])
-    byParent.get(key)!.push(n)
+function compareSchoolNodes(a: SchoolNode, b: SchoolNode, language: 'zh' | 'en') {
+  if (language === 'zh') {
+    const compared = comparePinyinText(a.sortKey || a.name || a.displayName, b.sortKey || b.name || b.displayName)
+    if (compared !== 0) return compared
+  } else {
+    const compared = (a.nameEn || a.displayName || a.name).localeCompare(
+      b.nameEn || b.displayName || b.name,
+      'en',
+      { sensitivity: 'base', numeric: true },
+    )
+    if (compared !== 0) return compared
   }
-  for (const list of byParent.values()) {
-    list.sort((a, b) => {
-      if (language === 'zh') {
-        return comparePinyinText(a.displayName, b.displayName)
-      } else {
-        return (a.nameEn || a.displayName).localeCompare(b.nameEn || b.displayName, 'en', { sensitivity: 'base' })
-      }
-    })
-  }
-  return byParent.get(0) ?? []
+
+  return comparePinyinText(a.name || a.displayName, b.name || b.displayName)
+}
+
+function sortSchoolNodes(nodes: SchoolNode[], language: 'zh' | 'en') {
+  return [...nodes].sort((a, b) => compareSchoolNodes(a, b, language))
 }
 
 function TreeNode({
   node,
-  nodes,
+  sortedNodes,
   selectedId,
   expandedIds,
   onToggle,
@@ -40,7 +41,7 @@ function TreeNode({
   level = 0,
 }: {
   node: SchoolNode
-  nodes: SchoolNode[]
+  sortedNodes: SchoolNode[]
   selectedId: number | null
   expandedIds: Set<number>
   onToggle: (id: number) => void
@@ -48,10 +49,10 @@ function TreeNode({
   t: (zh: string, en: string) => string
   level?: number
 }) {
-  const children = nodes.filter((n) => n.parentId === node.id)
+  const children = sortedNodes.filter((n) => n.parentId === node.id)
   const open = expandedIds.has(node.id)
   const isSelected = selectedId === node.id
-  const hasChildren = children.length > 0
+  const hasChildren = node.hasChildren || children.length > 0
 
   return (
     <div className="pl-2" style={{ marginLeft: level * 12 }}>
@@ -105,7 +106,7 @@ function TreeNode({
             <TreeNode
               key={c.id}
               node={c}
-              nodes={nodes}
+              sortedNodes={sortedNodes}
               selectedId={selectedId}
               expandedIds={expandedIds}
               onToggle={onToggle}
@@ -156,6 +157,9 @@ export function Schools() {
     return map
   }, [nodes])
 
+  const sortedNodes = useMemo(() => sortSchoolNodes(nodes, language), [nodes, language])
+  const tree = useMemo(() => sortedNodes.filter((node) => node.parentId == null), [sortedNodes])
+
   const collectDescendantIds = (id: number): number[] => {
     const result: number[] = []
     const stack = [...(byParent.get(id) || [])]
@@ -197,6 +201,7 @@ export function Schools() {
   }
 
   useEffect(() => {
+    setLoading(true)
     philosophyApi
       .schoolNodes()
       .then((data) => {
@@ -208,7 +213,7 @@ export function Schools() {
           setSelectedId(schoolId)
           setExpandedIds(new Set(collectAncestorIds(schoolId, data)))
         } else {
-          const top = buildTree(data)
+          const top = sortSchoolNodes(data, language).filter((node) => node.parentId == null)
           if (top[0]) {
             setSelectedId(top[0].id)
             setSearchParams({ schoolId: String(top[0].id) })
@@ -217,7 +222,7 @@ export function Schools() {
         }
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [language])
 
   // 当通过链接进入时响应 URL 中 schoolId 的变化（例如从内容卡片点击流派链接）
   useEffect(() => {
@@ -252,9 +257,7 @@ export function Schools() {
         setPage(0)
       })
       .finally(() => setLoadingContents(false))
-  }, [selectedId])
-
-  const tree = useMemo(() => buildTree(nodes, language), [nodes, language])
+  }, [selectedId, language])
 
   const loadMore = async () => {
     if (!selectedId || loadingContents || !hasMore) return
@@ -289,7 +292,7 @@ export function Schools() {
                 <TreeNode
                   key={n.id}
                   node={n}
-                  nodes={nodes}
+                  sortedNodes={sortedNodes}
                   selectedId={selectedId}
                   expandedIds={expandedIds}
                   onToggle={toggleNode}
