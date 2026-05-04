@@ -112,17 +112,7 @@ export function Header() {
                 <span>{t(labelZh, labelEn)}</span>
               </Link>
             ))}
-            {user && (
-              <Link
-                to="/user/profile"
-                className="px-3 py-3 rounded-md text-sm font-medium"
-                style={{ color: 'var(--text-secondary)' }}
-                onClick={() => setMobileOpen(false)}
-              >
-                <i className="fa fa-user mr-2" />
-                <span>{t('用户主页', 'Profile')}</span>
-              </Link>
-            )}
+            {/* 移动端不显示用户主页按钮 */}
           </div>
         </div>
       )}
