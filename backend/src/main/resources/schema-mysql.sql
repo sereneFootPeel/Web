@@ -69,3 +69,56 @@ CREATE TABLE IF NOT EXISTS history_philosophy_bucket_cache (
     KEY idx_hpbc_country_bucket (country_id, bucket_start_year, bucket_end_year)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+SET @philosophers_has_image_data := (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'philosophers'
+      AND COLUMN_NAME = 'image_data'
+);
+SET @philosophers_add_image_data_sql := IF(
+    @philosophers_has_image_data = 0,
+    'ALTER TABLE philosophers ADD COLUMN image_data LONGBLOB NULL AFTER image_url',
+    'SELECT 1'
+);
+PREPARE philosophers_add_image_data_stmt FROM @philosophers_add_image_data_sql;
+EXECUTE philosophers_add_image_data_stmt;
+DEALLOCATE PREPARE philosophers_add_image_data_stmt;
+
+SET @philosophers_has_image_content_type := (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'philosophers'
+      AND COLUMN_NAME = 'image_content_type'
+);
+SET @philosophers_add_image_content_type_sql := IF(
+    @philosophers_has_image_content_type = 0,
+    'ALTER TABLE philosophers ADD COLUMN image_content_type VARCHAR(255) NULL AFTER image_data',
+    'SELECT 1'
+);
+PREPARE philosophers_add_image_content_type_stmt FROM @philosophers_add_image_content_type_sql;
+EXECUTE philosophers_add_image_content_type_stmt;
+DEALLOCATE PREPARE philosophers_add_image_content_type_stmt;
+
+SET @philosophers_has_image_file_name := (
+    SELECT COUNT(*)
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'philosophers'
+      AND COLUMN_NAME = 'image_file_name'
+);
+SET @philosophers_add_image_file_name_sql := IF(
+    @philosophers_has_image_file_name = 0,
+    'ALTER TABLE philosophers ADD COLUMN image_file_name VARCHAR(255) NULL AFTER image_content_type',
+    'SELECT 1'
+);
+PREPARE philosophers_add_image_file_name_stmt FROM @philosophers_add_image_file_name_sql;
+EXECUTE philosophers_add_image_file_name_stmt;
+DEALLOCATE PREPARE philosophers_add_image_file_name_stmt;
+
+UPDATE philosophers
+SET image_url = NULL
+WHERE image_data IS NOT NULL
+  AND OCTET_LENGTH(image_data) > 0;
+

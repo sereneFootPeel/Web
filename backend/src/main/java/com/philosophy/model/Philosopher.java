@@ -2,6 +2,7 @@ package com.philosophy.model;
 
 import jakarta.persistence.*;
 import jakarta.validation.constraints.*;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonManagedReference;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -35,9 +36,25 @@ public class Philosopher {
     @Column(name = "birth_year")
     private Integer birthYear;
 
-    @Size(max = 500, message = "图片URL长度不能超过500个字符")
-    @Column(name = "image_url", length = 500)
-    private String imageUrl;
+    @Lob
+    @Basic(fetch = FetchType.LAZY)
+    @JsonIgnore
+    @Column(name = "image_data", columnDefinition = "LONGBLOB")
+    private byte[] imageData;
+
+    @Size(max = 255, message = "图片类型长度不能超过255个字符")
+    @JsonIgnore
+    @Column(name = "image_content_type", length = 255)
+    private String imageContentType;
+
+    @Size(max = 255, message = "图片文件名长度不能超过255个字符")
+    @JsonIgnore
+    @Column(name = "image_file_name", length = 255)
+    private String imageFileName;
+
+    @Transient
+    @JsonIgnore
+    private boolean clearImageRequested;
 
     @Size(max = 10000, message = "传记长度不能超过10000个字符")
     @Column(name = "biography", columnDefinition = "TEXT")
@@ -119,11 +136,58 @@ public class Philosopher {
     }
 
     public String getImageUrl() {
-        return imageUrl;
+        if (!hasImage() || id == null) {
+            return null;
+        }
+        return "/api/philosophers/" + id + "/image";
     }
 
     public void setImageUrl(String imageUrl) {
-        this.imageUrl = imageUrl;
+        // 兼容旧调用：图片已改为数据库存储，不再接受外部 URL 持久化。
+    }
+
+    public byte[] getImageData() {
+        return imageData;
+    }
+
+    public void setImageData(byte[] imageData) {
+        this.imageData = imageData;
+    }
+
+
+    public String getImageContentType() {
+        return imageContentType;
+    }
+
+    public void setImageContentType(String imageContentType) {
+        this.imageContentType = imageContentType;
+    }
+
+    public String getImageFileName() {
+        return imageFileName;
+    }
+
+    public void setImageFileName(String imageFileName) {
+        this.imageFileName = imageFileName;
+    }
+
+    public boolean hasImage() {
+        return (imageContentType != null && !imageContentType.isBlank())
+            || (imageFileName != null && !imageFileName.isBlank());
+    }
+
+    public void clearImage() {
+        this.imageData = null;
+        this.imageContentType = null;
+        this.imageFileName = null;
+    }
+
+    public boolean isClearImageRequested() {
+        return clearImageRequested;
+    }
+
+    public void setClearImageRequested(boolean clearImageRequested) {
+        this.clearImageRequested = clearImageRequested;
     }
 
     public String getBio() {

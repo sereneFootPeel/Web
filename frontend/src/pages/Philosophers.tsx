@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { philosophyApi, type PhilosopherNameItem, type PhilosopherData } from '../api/philosophy'
+import { buildVersionedImageUrl, philosophyApi, type PhilosopherNameItem, type PhilosopherData } from '../api/philosophy'
 import { ContentCard } from '../components/ContentCard'
 
 export function Philosophers() {
@@ -199,8 +199,22 @@ export function Philosophers() {
             <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
               {selected.displayName}
             </h1>
-            <p className="text-sm opacity-75 mb-4">{selected.dateRange}</p>
-            <p className="mb-6 whitespace-pre-wrap">{selected.displayBiography}</p>
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start">
+              {selected.imageUrl && (
+                <div className="w-full max-w-52 flex-shrink-0 overflow-hidden sm:w-40 md:w-44">
+                  <img
+                    src={buildVersionedImageUrl(selected.imageUrl, selected.imageVersion)}
+                    alt={`${selected.displayName} 图片`}
+                    className="block h-full w-full"
+                    loading="lazy"
+                  />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-sm opacity-75 mb-3">{selected.dateRange}</p>
+                <p className="whitespace-pre-wrap leading-7">{selected.displayBiography}</p>
+              </div>
+            </div>
             <div className="space-y-4">
               {selected.contents.map((c) => (
                 <ContentCard
@@ -234,7 +248,7 @@ export function Philosophers() {
       {showNavButtons && (
         <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 flex flex-col gap-3 sm:gap-4 z-40">
           <button
-            type="button"
+               type="button"
             onClick={() => navigatePhilosopher(-1)}
             className="w-14 h-14 sm:w-16 sm:h-16 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 touch-manipulation"
             style={{ backgroundColor: 'var(--color-primary)', color: 'black' }}

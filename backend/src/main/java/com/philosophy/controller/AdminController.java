@@ -175,26 +175,9 @@ public class AdminController {
         // 处理文件上传
         Philosopher savedPhilosopher;
         if (imageFile != null && !imageFile.isEmpty()) {
-            // 如果上传了新图片，先删除旧图片（如果存在）
-            if (philosopher.getId() != null) {
-                Philosopher existingPhilosopher = philosopherService.getPhilosopherById(philosopher.getId());
-                if (existingPhilosopher != null && existingPhilosopher.getImageUrl() != null) {
-                    philosopherService.deleteImageFile(existingPhilosopher.getImageUrl());
-                }
-            }
-            // 上传新图片
-            String imageUrl = philosopherService.uploadImage(imageFile);
-            philosopher.setImageUrl(imageUrl);
+            philosopherService.storeImage(philosopher, imageFile);
             savedPhilosopher = philosopherService.savePhilosopherForAdmin(philosopher, currentUser);
         } else {
-            // 如果没有上传新图片，保留原有的 imageUrl
-            if (philosopher.getId() != null) {
-                Philosopher existingPhilosopher = philosopherService.getPhilosopherById(philosopher.getId());
-                if (existingPhilosopher != null && existingPhilosopher.getImageUrl() != null) {
-                    // 设置原有的 imageUrl，确保不会被清除
-                    philosopher.setImageUrl(existingPhilosopher.getImageUrl());
-                }
-            }
             savedPhilosopher = philosopherService.savePhilosopherForAdmin(philosopher, currentUser);
         }
 
@@ -624,8 +607,7 @@ public class AdminController {
     // 上传图片
     @PostMapping("/upload")
     public String uploadImage(@RequestParam("file") MultipartFile file) throws IOException {
-        String imageUrl = philosopherService.uploadImage(file);
-        return "redirect:/admin/philosophers?imageUrl=" + imageUrl;
+        return "redirect:/admin/philosophers";
     }
 
     // 添加新用户表单

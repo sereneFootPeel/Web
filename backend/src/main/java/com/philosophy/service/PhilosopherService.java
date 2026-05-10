@@ -14,19 +14,16 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +36,6 @@ public class PhilosopherService {
     private final ContentRepository contentRepository;
     private final UserContentEditRepository userContentEditRepository;
     private final PhilosopherTranslationRepository philosopherTranslationRepository;
-    private static final String UPLOAD_DIR = "uploads/"; // 上传目录
 
     public PhilosopherService(PhilosopherRepository philosopherRepository, ContentRepository contentRepository, UserContentEditRepository userContentEditRepository, PhilosopherTranslationRepository philosopherTranslationRepository) {
         this.philosopherRepository = philosopherRepository;
@@ -151,9 +147,12 @@ public class PhilosopherService {
                 // 更新死亡日期（即使为 null，表示用户想要清除死亡日期）
                 philosopherToSave.setDeathYear(philosopherFromForm.getDeathYear());
             }
-            // 只有在明确提供了新的 imageUrl 时才更新，否则保留原有的照片
-            if (philosopherFromForm.getImageUrl() != null) {
-                philosopherToSave.setImageUrl(philosopherFromForm.getImageUrl());
+            if (philosopherFromForm.isClearImageRequested()) {
+                philosopherToSave.clearImage();
+            } else if (philosopherFromForm.getImageData() != null && philosopherFromForm.getImageData().length > 0) {
+                philosopherToSave.setImageData(philosopherFromForm.getImageData());
+                philosopherToSave.setImageContentType(philosopherFromForm.getImageContentType());
+                philosopherToSave.setImageFileName(philosopherFromForm.getImageFileName());
             }
             // 如果是新创建（用户字段为空），设置创建者
             if (philosopherToSave.getUser() == null) {
@@ -161,6 +160,9 @@ public class PhilosopherService {
             }
         } else {
             philosopherToSave = philosopherFromForm;
+            if (philosopherFromForm.isClearImageRequested()) {
+                philosopherToSave.clearImage();
+            }
             // 为新创建的哲学家设置创建者
             philosopherToSave.setUser(editor);
         }
@@ -173,8 +175,7 @@ public class PhilosopherService {
     @Transactional
     public Philosopher savePhilosopherWithImage(Philosopher philosopher, MultipartFile imageFile) throws IOException {
         if (imageFile != null && !imageFile.isEmpty()) {
-            String imageUrl = uploadImage(imageFile);
-            philosopher.setImageUrl(imageUrl);
+            storeImage(philosopher, imageFile);
         }
         return savePhilosopher(philosopher);
     }
@@ -232,50 +233,58 @@ public class PhilosopherService {
         deleteById(id);
     }
 
-    // 上传图片方法
-    public String uploadImage(MultipartFile file) throws IOException {
-        // 确保上传目录存在
-        Path uploadPath = Paths.get(UPLOAD_DIR);
-        if (!Files.exists(uploadPath)) {
-            Files.createDirectories(uploadPath);
-        }
-
-        // 生成唯一文件名
-        String fileName = UUID.randomUUID().toString() + "-" + file.getOriginalFilename();
-        Path filePath = uploadPath.resolve(fileName);
-
-        // 保存文件
-        Files.copy(file.getInputStream(), filePath);
-
-        // 返回文件URL
-        return "/" + UPLOAD_DIR + fileName;
-    }
-
-    // 删除图片文件方法
-    public void deleteImageFile(String imageUrl) {
-        if (imageUrl == null || imageUrl.isEmpty()) {
+    public void storeImage(Philosopher philosopher, MultipartFile file) throws IOException {
+        if (philosopher == null || file == null || file.isEmpty()) {
             return;
         }
-        
-        try {
-            // 从URL中提取文件路径
-            // URL格式应该是 /uploads/filename 或类似的格式
-            String filePath = imageUrl;
-            if (filePath.startsWith("/")) {
-                filePath = filePath.substring(1);
-            }
-            
-            Path path = Paths.get(filePath);
-            if (Files.exists(path)) {
-                Files.delete(path);
-                logger.info("Deleted image file: {}", filePath);
-            } else {
-                logger.warn("Image file not found: {}", filePath);
-            }
-        } catch (IOException e) {
-            logger.error("Error deleting image file: {}", imageUrl, e);
-            // 不抛出异常，因为文件可能已经被删除或不存在
+
+        String contentType = resolveImageContentType(file.getContentType(), file.getOriginalFilename());
+        if (contentType == null) {
+            throw new IOException("仅支持图片文件上传");
         }
+
+        philosopher.setImageData(file.getBytes());
+        philosopher.setImageContentType(contentType);
+        philosopher.setImageFileName(sanitizeFileName(file.getOriginalFilename()));
+    }
+
+    public void clearImage(Philosopher philosopher) {
+        if (philosopher == null) {
+            return;
+        }
+        philosopher.clearImage();
+    }
+
+    public boolean hasStoredImage(Philosopher philosopher) {
+        return philosopher != null && philosopher.hasImage();
+    }
+
+
+    private String resolveImageContentType(String contentType, String originalFilename) {
+        if (contentType != null) {
+            String normalized = contentType.trim().toLowerCase(Locale.ROOT);
+            if (normalized.startsWith("image/")) {
+                return normalized;
+            }
+        }
+
+        if (originalFilename == null) {
+            return null;
+        }
+        String lower = originalFilename.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".svg")) return "image/svg+xml";
+        return null;
+    }
+
+    private String sanitizeFileName(String originalFilename) {
+        if (originalFilename == null || originalFilename.isBlank()) {
+            return "philosopher-image";
+        }
+        return originalFilename.replaceAll("[\\r\\n\\t]", "_").trim();
     }
 
     // 获取精选哲学家（首页使用）

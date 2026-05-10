@@ -108,7 +108,7 @@ public class DataImportService {
     private static final Pattern ANY_NUMBER_PATTERN = Pattern.compile("(\\d+)");
     private static final int USER_SECTION_MIN_COLUMNS = 26;
     private static final int SCHOOL_SECTION_MIN_COLUMNS = 11;
-    private static final int PHILOSOPHER_SECTION_MIN_COLUMNS = 14;
+    private static final int PHILOSOPHER_SECTION_MIN_COLUMNS = 15;
     private static final List<String> CLEAR_ALL_TARGET_TABLES = List.of(
             "user_login_info",
             "history_philosophy_bucket_cache",
@@ -2062,16 +2062,19 @@ public class DataImportService {
                     continue;
                 }
 
-                boolean hasLegacyEraColumn = fields.length >= 14;
+                boolean hasInlineImageColumns = fields.length >= 15;
+                boolean hasLegacyEraColumn = !hasInlineImageColumns && fields.length >= 14;
                 fields = ensureMinimumColumns(fields, PHILOSOPHER_SECTION_MIN_COLUMNS);
                 int nationalityIndex = hasLegacyEraColumn ? 6 : 5;
                 int bioIndex = hasLegacyEraColumn ? 7 : 6;
                 int bioEnIndex = hasLegacyEraColumn ? 8 : 7;
-                int imageUrlIndex = hasLegacyEraColumn ? 9 : 8;
-                int creatorIdIndex = hasLegacyEraColumn ? 10 : 9;
-                int likeCountIndex = hasLegacyEraColumn ? 11 : 10;
-                int createdAtIndex = hasLegacyEraColumn ? 12 : 11;
-                int updatedAtIndex = hasLegacyEraColumn ? 13 : 12;
+                int imageContentTypeIndex = hasInlineImageColumns ? 8 : -1;
+                int imageFileNameIndex = hasInlineImageColumns ? 9 : -1;
+                int imageBase64Index = hasInlineImageColumns ? 10 : -1;
+                int creatorIdIndex = hasInlineImageColumns ? 11 : (hasLegacyEraColumn ? 10 : 9);
+                int likeCountIndex = hasInlineImageColumns ? 12 : (hasLegacyEraColumn ? 11 : 10);
+                int createdAtIndex = hasInlineImageColumns ? 13 : (hasLegacyEraColumn ? 12 : 11);
+                int updatedAtIndex = hasInlineImageColumns ? 14 : (hasLegacyEraColumn ? 13 : 12);
 
                 Long philosopherId = parseIdFromValue(fields[0]);
                 if (philosopherId == null) {
@@ -2144,9 +2147,15 @@ public class DataImportService {
                     philosopher.setBioEn(fields[bioEnIndex]);
                 }
                 
-                // 处理图片URL
-                if (fields.length > imageUrlIndex && !fields[imageUrlIndex].isEmpty() && !fields[imageUrlIndex].equals("null")) {
-                    philosopher.setImageUrl(fields[imageUrlIndex]);
+                // 处理数据库图片字段（新 CSV 格式）
+                if (hasInlineImageColumns) {
+                    applyImportedPhilosopherImage(
+                        philosopher,
+                        nullableCsvField(fields[imageContentTypeIndex]),
+                        nullableCsvField(fields[imageFileNameIndex]),
+                        nullableCsvField(fields[imageBase64Index]),
+                        philosopherId
+                    );
                 }
                 
                 // 处理点赞数
@@ -2208,7 +2217,12 @@ public class DataImportService {
                         addUpdateColumn(updateAssignments, updateParams, tableName, "bio_en", philosopher.getBioEn(), context, false);
                     }
 
-                    addUpdateColumn(updateAssignments, updateParams, tableName, "image_url", philosopher.getImageUrl(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "image_data", philosopher.getImageData(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "image_content_type", philosopher.getImageContentType(), context, false);
+                    addUpdateColumn(updateAssignments, updateParams, tableName, "image_file_name", philosopher.getImageFileName(), context, false);
+                    if (ensureColumnExists(tableName, "image_url", false, context)) {
+                        updateAssignments.add("image_url = NULL");
+                    }
                     addUpdateColumn(updateAssignments, updateParams, tableName, "like_count",
                             philosopher.getLikeCount() != null ? philosopher.getLikeCount() : 0, context, false);
 
@@ -2249,7 +2263,13 @@ public class DataImportService {
                             addInsertColumn(insertColumns, insertParams, tableName, "bio_en", philosopher.getBioEn(), context, false);
                         }
 
-                        addInsertColumn(insertColumns, insertParams, tableName, "image_url", philosopher.getImageUrl(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "image_data", philosopher.getImageData(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "image_content_type", philosopher.getImageContentType(), context, false);
+                        addInsertColumn(insertColumns, insertParams, tableName, "image_file_name", philosopher.getImageFileName(), context, false);
+                        if (ensureColumnExists(tableName, "image_url", false, context)) {
+                            insertColumns.add("image_url");
+                            insertParams.add(null);
+                        }
                         addInsertColumn(insertColumns, insertParams, tableName, "like_count",
                                 philosopher.getLikeCount() != null ? philosopher.getLikeCount() : 0, context, false);
 
@@ -2299,6 +2319,68 @@ public class DataImportService {
 
         result.addResult(sectionName, success, failed);
         logger.info("哲学家数据导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    private void applyImportedPhilosopherImage(Philosopher philosopher,
+                                               String imageContentType,
+                                               String imageFileName,
+                                               String imageBase64,
+                                               Long philosopherId) {
+        if (imageBase64 == null || imageBase64.isBlank()) {
+            philosopher.clearImage();
+            return;
+        }
+
+        try {
+            byte[] imageBytes = Base64.getDecoder().decode(imageBase64);
+            if (imageBytes.length == 0) {
+                philosopher.clearImage();
+                return;
+            }
+
+            philosopher.setImageData(imageBytes);
+            philosopher.setImageContentType(resolveImportedImageContentType(imageContentType, imageFileName));
+            philosopher.setImageFileName(resolveImportedImageFileName(imageFileName));
+        } catch (IllegalArgumentException e) {
+            philosopher.clearImage();
+            logger.warn("哲学家ID {}: 图片 Base64 解码失败，已忽略该图片", philosopherId);
+        }
+    }
+
+    private String nullableCsvField(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() || "null".equalsIgnoreCase(trimmed) ? null : trimmed;
+    }
+
+    private String resolveImportedImageContentType(String imageContentType, String imageFileName) {
+        String normalizedContentType = nullableCsvField(imageContentType);
+        if (normalizedContentType != null && normalizedContentType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+            return normalizedContentType;
+        }
+
+        String normalizedFileName = nullableCsvField(imageFileName);
+        if (normalizedFileName == null) {
+            return "application/octet-stream";
+        }
+
+        String lower = normalizedFileName.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".png")) return "image/png";
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+        if (lower.endsWith(".gif")) return "image/gif";
+        if (lower.endsWith(".webp")) return "image/webp";
+        if (lower.endsWith(".svg")) return "image/svg+xml";
+        return "application/octet-stream";
+    }
+
+    private String resolveImportedImageFileName(String imageFileName) {
+        String normalizedFileName = nullableCsvField(imageFileName);
+        if (normalizedFileName == null) {
+            return "philosopher-image";
+        }
+        return normalizedFileName.replaceAll("[\\r\\n\\t]", "_").trim();
     }
 
     public void importContentsInTransaction(ImportResult result, List<String[]> data) {

@@ -136,7 +136,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/comments/content/*").authenticated()
                 .requestMatchers(HttpMethod.DELETE, "/api/comments/*").authenticated()
                 // 静态资源
-                .requestMatchers("/css/**", "/js/**", "/images/**", "/uploads/**", "/data/**", "/error", "/language/**", "/@vite/**", "/node_modules/**").permitAll()
+                .requestMatchers("/css/**", "/js/**", "/images/**", "/data/**", "/error", "/language/**", "/@vite/**", "/node_modules/**").permitAll()
                 // 允许访问Vite相关资源
                 // 用户相关API需要认证
                 // 用户相关API需要认证

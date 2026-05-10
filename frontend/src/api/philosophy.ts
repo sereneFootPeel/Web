@@ -72,6 +72,8 @@ export type PhilosopherData = {
   displayName: string
   displayBiography: string
   dateRange: string
+  imageUrl?: string | null
+  imageVersion?: string | null
   schools: { id: number; displayName: string }[]
   contents: Array<{
     id: number
@@ -200,6 +202,17 @@ export const philosophyApi = {
         replies: Array<{ id: number; body: string; createdAt: string | null; user?: { id: number; username: string } }>
       }>
     }>(`/comments/content/${contentId}`),
+}
+
+export function buildVersionedImageUrl(imageUrl?: string | null, imageVersion?: string | null) {
+  if (!imageUrl) {
+    return ''
+  }
+  if (!imageVersion) {
+    return imageUrl
+  }
+  const separator = imageUrl.includes('?') ? '&' : '?'
+  return `${imageUrl}${separator}v=${encodeURIComponent(imageVersion)}`
 }
 
 export async function apiPostComment(contentId: number, body: string, parentId?: number) {

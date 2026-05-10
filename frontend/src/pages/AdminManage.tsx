@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchWithCredentials } from '../api/client'
+import { buildVersionedImageUrl } from '../api/philosophy'
 import { comparePinyinText, removeById, sortList, upsertById } from '../utils/pinyinSort'
 
 type Dashboard = {
@@ -29,6 +30,8 @@ type AdminPhilosopher = {
   deathYear?: number | null
   birthDeathDate?: string | null
   imageUrl?: string | null
+  imageVersion?: string | null
+  hasImage?: boolean
 }
 
 type AdminSchool = {
@@ -96,6 +99,27 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
       ...(init?.headers ?? {}),
     },
     ...init,
+  })
+  const contentType = res.headers.get('content-type') || ''
+  const finalUrl = res.url || ''
+  if (res.redirected || !contentType.includes('application/json')) {
+    const redirectedToLoginLikePage = finalUrl.includes('/login') || finalUrl.includes('error=401') || finalUrl.includes('error=403')
+    if (res.status === 401 || res.status === 403 || redirectedToLoginLikePage) {
+      throw new Error('登录状态已失效，请重新登录后重试')
+    }
+    throw new Error('服务器返回了非 JSON 响应，请稍后重试')
+  }
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok || (typeof data === 'object' && data !== null && 'success' in (data as Record<string, unknown>) && (data as { success?: boolean }).success === false)) {
+    throw new Error((data as { message?: string }).message || '请求失败')
+  }
+  return data as T
+}
+
+async function requestFormData<T>(url: string, method: 'POST' | 'PUT', body: FormData): Promise<T> {
+  const res = await fetchWithCredentials(url, {
+    method,
+    body,
   })
   const contentType = res.headers.get('content-type') || ''
   const finalUrl = res.url || ''
@@ -220,7 +244,7 @@ export function AdminManage() {
 
   const [userForm, setUserForm] = useState({ id: 0, username: '', email: '', role: 'USER', enabled: true, password: '' })
   const [philosopherForm, setPhilosopherForm] = useState({
-    id: 0, name: '', nameEn: '', birthDeathDate: '', bio: '', bioEn: '', imageUrl: '',
+    id: 0, name: '', nameEn: '', birthDeathDate: '', bio: '', bioEn: '', imageUrl: '', imageVersion: '', hasImage: false,
   })
   const [schoolForm, setSchoolForm] = useState({ id: 0, name: '', nameEn: '', description: '', descriptionEn: '', parentId: '' })
   const [contentForm, setContentForm] = useState({
@@ -233,6 +257,10 @@ export function AdminManage() {
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [clearExistingData, setClearExistingData] = useState(false)
   const [lastImportResult, setLastImportResult] = useState<CsvImportResult | null>(null)
+  const [philosopherImageFile, setPhilosopherImageFile] = useState<File | null>(null)
+  const [removePhilosopherImage, setRemovePhilosopherImage] = useState(false)
+  const [philosopherImagePreviewUrl, setPhilosopherImagePreviewUrl] = useState('')
+  const philosopherImageInputRef = useRef<HTMLInputElement | null>(null)
 
   async function loadCurrent() {
     setLoading(true)
@@ -279,11 +307,31 @@ export function AdminManage() {
     void loadCurrent()
   }, [section, historyCountryFilterId])
 
+  useEffect(() => {
+    if (!philosopherImageFile) {
+      setPhilosopherImagePreviewUrl('')
+      return
+    }
+
+    const objectUrl = URL.createObjectURL(philosopherImageFile)
+    setPhilosopherImagePreviewUrl(objectUrl)
+    return () => URL.revokeObjectURL(objectUrl)
+  }, [philosopherImageFile])
+
+  function resetPhilosopherImageState() {
+    setPhilosopherImageFile(null)
+    setRemovePhilosopherImage(false)
+    if (philosopherImageInputRef.current) {
+      philosopherImageInputRef.current.value = ''
+    }
+  }
+
   function resetForms() {
     setUserForm({ id: 0, username: '', email: '', role: 'USER', enabled: true, password: '' })
-    setPhilosopherForm({ id: 0, name: '', nameEn: '', birthDeathDate: '', bio: '', bioEn: '', imageUrl: '' })
+    setPhilosopherForm({ id: 0, name: '', nameEn: '', birthDeathDate: '', bio: '', bioEn: '', imageUrl: '', imageVersion: '', hasImage: false })
     setSchoolForm({ id: 0, name: '', nameEn: '', description: '', descriptionEn: '', parentId: '' })
     setContentForm({ id: 0, content: '', contentEn: '', philosopherId: '', schoolId: '' })
+    resetPhilosopherImageState()
     setHistoryEventForm((current) => ({
       id: 0,
       countryId: historyCountryFilterId || current.countryId || '',
@@ -362,22 +410,25 @@ export function AdminManage() {
 
   async function submitPhilosopher(e: FormEvent) {
     e.preventDefault()
-    const payload = {
-      name: philosopherForm.name,
-      nameEn: philosopherForm.nameEn || null,
-      birthDeathDate: philosopherForm.birthDeathDate || null,
-      bio: philosopherForm.bio || null,
-      bioEn: philosopherForm.bioEn || null,
-      imageUrl: philosopherForm.imageUrl || null,
-    }
     try {
+      const formData = new FormData()
+      formData.append('name', philosopherForm.name)
+      if (philosopherForm.nameEn.trim()) formData.append('nameEn', philosopherForm.nameEn)
+      if (philosopherForm.birthDeathDate.trim()) formData.append('birthDeathDate', philosopherForm.birthDeathDate)
+      if (philosopherForm.bio.trim()) formData.append('bio', philosopherForm.bio)
+      if (philosopherForm.bioEn.trim()) formData.append('bioEn', philosopherForm.bioEn)
+      formData.append('clearImage', String(removePhilosopherImage))
+      if (philosopherImageFile) {
+        formData.append('imageFile', philosopherImageFile)
+      }
+
       let savedPhilosopher: AdminPhilosopher | null = null
       if (philosopherForm.id) {
-        const res = await requestJson<{ success: boolean; philosopher: AdminPhilosopher }>('/api/admin/philosophers/' + philosopherForm.id, { method: 'PUT', body: JSON.stringify(payload) })
+        const res = await requestFormData<{ success: boolean; philosopher: AdminPhilosopher }>('/api/admin/philosophers/' + philosopherForm.id, 'PUT', formData)
         savedPhilosopher = res.philosopher
         showSuccess('哲学家已更新')
       } else {
-        const res = await requestJson<{ success: boolean; philosopher: AdminPhilosopher }>('/api/admin/philosophers', { method: 'POST', body: JSON.stringify(payload) })
+        const res = await requestFormData<{ success: boolean; philosopher: AdminPhilosopher }>('/api/admin/philosophers', 'POST', formData)
         savedPhilosopher = res.philosopher
         showSuccess('哲学家已创建')
       }
@@ -740,7 +791,60 @@ export function AdminManage() {
             <input className="w-full border rounded p-2" placeholder="英文名" value={philosopherForm.nameEn} onChange={(e) => setPhilosopherForm((v) => ({ ...v, nameEn: e.target.value }))} />
             <input className="w-full border rounded p-2" placeholder="出生死亡日期（如 1999.1.1 - 2000.1.1）" value={philosopherForm.birthDeathDate} onChange={(e) => setPhilosopherForm((v) => ({ ...v, birthDeathDate: e.target.value }))} />
             <p className="text-xs text-gray-500 -mt-2">格式：1999.1.1 - 2000.1.1（出生日期会自动计算用于前端排序）</p>
-            <input className="w-full border rounded p-2" placeholder="图片URL" value={philosopherForm.imageUrl} onChange={(e) => setPhilosopherForm((v) => ({ ...v, imageUrl: e.target.value }))} />
+            <input
+              ref={philosopherImageInputRef}
+              className="hidden"
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0] ?? null
+                setPhilosopherImageFile(file)
+                if (file) {
+                  setRemovePhilosopherImage(false)
+                }
+              }}
+            />
+            <div className="rounded border p-3 space-y-3" style={{ borderColor: 'var(--border-primary)' }}>
+              <div className="flex flex-wrap gap-2">
+                <button className="px-3 py-2 rounded border" type="button" onClick={() => philosopherImageInputRef.current?.click()}>
+                  选择图片
+                </button>
+                <button className="px-3 py-2 rounded border" type="button" onClick={resetPhilosopherImageState}>
+                  清空已选文件
+                </button>
+                {philosopherForm.id && philosopherForm.hasImage && !removePhilosopherImage && (
+                  <button className="px-3 py-2 rounded border text-red-600" type="button" onClick={() => setRemovePhilosopherImage(true)}>
+                    删除当前图片
+                  </button>
+                )}
+                {removePhilosopherImage && (
+                  <button className="px-3 py-2 rounded border" type="button" onClick={() => setRemovePhilosopherImage(false)}>
+                    取消删除图片
+                  </button>
+                )}
+              </div>
+              <div className="text-sm text-gray-600">
+                {philosopherImageFile
+                  ? philosopherForm.hasImage
+                    ? `已选择新文件：${philosopherImageFile.name}，保存后会替换当前图片。`
+                    : `已选择文件：${philosopherImageFile.name}`
+                  : philosopherForm.hasImage && !removePhilosopherImage
+                    ? '当前已存在图片，不重新选择则会保留；重新上传会自动替换旧图片。'
+                    : removePhilosopherImage
+                      ? '保存后会删除当前图片，图片字段允许为空。'
+                      : '未选择图片，保存时图片可以为空。'}
+              </div>
+              {(philosopherImagePreviewUrl || (philosopherForm.imageUrl && philosopherForm.hasImage && !removePhilosopherImage)) && (
+                <div className="space-y-2">
+                  <div className="text-xs text-gray-500">{philosopherImagePreviewUrl ? '待保存图片预览' : '当前图片预览'}</div>
+                  <img
+                    src={philosopherImagePreviewUrl || buildVersionedImageUrl(philosopherForm.imageUrl, philosopherForm.imageVersion)}
+                    alt={`${philosopherForm.name || '哲学家'} 图片`}
+                    className="max-h-48"
+                  />
+                </div>
+              )}
+            </div>
             <textarea className="w-full border rounded p-2 min-h-28" placeholder="传记" value={philosopherForm.bio} onChange={(e) => setPhilosopherForm((v) => ({ ...v, bio: e.target.value }))} />
             <textarea className="w-full border rounded p-2 min-h-24" placeholder="英文传记（可空）" value={philosopherForm.bioEn} onChange={(e) => setPhilosopherForm((v) => ({ ...v, bioEn: e.target.value }))} />
             <div className="flex gap-2">
@@ -753,18 +857,23 @@ export function AdminManage() {
               <div key={p.id} className="p-3 rounded border border-gray-200 flex items-center justify-between gap-2">
                 <div>
                   <div className="font-medium">{p.name}</div>
-                  <div className="text-sm text-gray-500">{p.birthDeathDate || '无日期信息'}</div>
+                  <div className="text-sm text-gray-500">{p.birthDeathDate || '无日期信息'} · {p.hasImage ? '有图片' : '无图片'}</div>
                 </div>
                 <div className="flex gap-2">
-                  <button className="text-black" onClick={() => setPhilosopherForm({
-                    id: p.id,
-                    name: p.name || '',
-                    nameEn: p.nameEn || '',
-                    birthDeathDate: p.birthDeathDate || '',
-                    bio: p.bio || '',
-                    bioEn: p.bioEn || '',
-                    imageUrl: p.imageUrl || '',
-                  })}>编辑</button>
+                  <button className="text-black" onClick={() => {
+                    resetPhilosopherImageState()
+                    setPhilosopherForm({
+                      id: p.id,
+                      name: p.name || '',
+                      nameEn: p.nameEn || '',
+                      birthDeathDate: p.birthDeathDate || '',
+                      bio: p.bio || '',
+                      bioEn: p.bioEn || '',
+                      imageUrl: p.imageUrl || '',
+                      imageVersion: p.imageVersion || '',
+                      hasImage: Boolean(p.hasImage),
+                    })
+                  }}>编辑</button>
                   <button className="text-red-600" onClick={() => void removePhilosopher(p.id)}>删除</button>
                 </div>
               </div>

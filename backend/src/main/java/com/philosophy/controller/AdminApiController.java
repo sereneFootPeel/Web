@@ -15,12 +15,14 @@ import com.philosophy.service.TranslationService;
 import com.philosophy.util.DateUtils;
 import com.philosophy.util.PinyinStringComparator;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.Date;
@@ -28,6 +30,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.time.Duration;
 
 @RestController
 @RequestMapping("/api/admin")
@@ -149,7 +152,19 @@ public class AdminApiController {
         m.put("deathYear", p.getDeathYear());
         m.put("birthDeathDate", resolveBirthDeathDateForDisplay(p));
         m.put("imageUrl", p.getImageUrl());
+        m.put("imageVersion", resolveImageVersion(p));
+        m.put("hasImage", philosopherService.hasStoredImage(p));
         return m;
+    }
+
+    private String resolveImageVersion(Philosopher philosopher) {
+        if (philosopher == null || !philosopherService.hasStoredImage(philosopher)) {
+            return null;
+        }
+        if (philosopher.getUpdatedAt() != null) {
+            return philosopher.getUpdatedAt().toString();
+        }
+        return philosopher.getCreatedAt() == null ? null : philosopher.getCreatedAt().toString();
     }
 
     private Map<String, Object> schoolMap(School s) {
@@ -227,6 +242,79 @@ public class AdminApiController {
 
     private String asString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private void applyPhilosopherImageChanges(Philosopher philosopher, MultipartFile imageFile, Object clearImageValue) throws IOException {
+        boolean clearImage = Boolean.TRUE.equals(asBoolean(clearImageValue));
+        philosopher.setClearImageRequested(clearImage);
+        if (clearImage) {
+            philosopherService.clearImage(philosopher);
+        }
+        if (imageFile != null && !imageFile.isEmpty()) {
+            philosopher.setClearImageRequested(false);
+            philosopherService.storeImage(philosopher, imageFile);
+        }
+    }
+
+    private ResponseEntity<Map<String, Object>> createPhilosopherInternal(Authentication auth, Map<String, Object> body, MultipartFile imageFile) {
+        try {
+            User adminUser = requireAdminUser(auth);
+            String name = String.valueOf(body.getOrDefault("name", "")).trim();
+            if (name.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "哲学家姓名不能为空"));
+            }
+            Philosopher p = new Philosopher();
+            p.setName(name);
+            p.setNameEn((String) body.get("nameEn"));
+            p.setBio((String) body.get("bio"));
+            p.setBioEn((String) body.get("bioEn"));
+            String birthDeathDateError = parseAndApplyBirthDeathDate(p, asString(body.get("birthDeathDate")));
+            if (birthDeathDateError != null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", birthDeathDateError));
+            }
+            if (p.getBirthYear() == null) {
+                p.setBirthYear(asInteger(body.get("birthYear")));
+                p.setDeathYear(asInteger(body.get("deathYear")));
+            }
+            applyPhilosopherImageChanges(p, imageFile, body.get("clearImage"));
+            Philosopher saved = philosopherService.savePhilosopherForAdmin(p, adminUser);
+            savePhilosopherTranslation(saved, (String) body.get("nameEn"), (String) body.get("bioEn"));
+            return ResponseEntity.ok(Map.of("success", true, "philosopher", philosopherMap(saved)));
+        } catch (IOException e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    private ResponseEntity<Map<String, Object>> updatePhilosopherInternal(Authentication auth, Long id, Map<String, Object> body, MultipartFile imageFile) {
+        try {
+            User adminUser = requireAdminUser(auth);
+            Philosopher p = philosopherService.getPhilosopherById(id);
+            if (p == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "哲学家不存在"));
+            }
+            String name = String.valueOf(body.getOrDefault("name", p.getName())).trim();
+            if (name.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "哲学家姓名不能为空"));
+            }
+            p.setName(name);
+            p.setNameEn((String) body.getOrDefault("nameEn", p.getNameEn()));
+            p.setBio((String) body.getOrDefault("bio", p.getBio()));
+            p.setBioEn((String) body.getOrDefault("bioEn", p.getBioEn()));
+            String birthDeathDateError = parseAndApplyBirthDeathDate(p, asString(body.get("birthDeathDate")));
+            if (birthDeathDateError != null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", birthDeathDateError));
+            }
+            if (body.containsKey("birthYear") || body.containsKey("deathYear")) {
+                p.setBirthYear(asInteger(body.getOrDefault("birthYear", p.getBirthYear())));
+                p.setDeathYear(asInteger(body.getOrDefault("deathYear", p.getDeathYear())));
+            }
+            applyPhilosopherImageChanges(p, imageFile, body.get("clearImage"));
+            Philosopher saved = philosopherService.savePhilosopherForAdmin(p, adminUser);
+            savePhilosopherTranslation(saved, (String) body.get("nameEn"), (String) body.get("bioEn"));
+            return ResponseEntity.ok(Map.of("success", true, "philosopher", philosopherMap(saved)));
+        } catch (IOException e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));
+        }
     }
 
     private String parseAndApplyBirthDeathDate(Philosopher philosopher, String birthDeathDate) {
@@ -374,59 +462,37 @@ public class AdminApiController {
         return ResponseEntity.ok(Map.of("philosophers", list.stream().map(this::philosopherMap).toList()));
     }
 
-    @PostMapping("/philosophers")
+    @PostMapping(value = "/philosophers", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> createPhilosopher(Authentication auth, @RequestBody Map<String, Object> body) {
-        User adminUser = requireAdminUser(auth);
-        String name = String.valueOf(body.getOrDefault("name", "")).trim();
-        if (name.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "哲学家姓名不能为空"));
-        }
-        Philosopher p = new Philosopher();
-        p.setName(name);
-        p.setNameEn((String) body.get("nameEn"));
-        p.setBio((String) body.get("bio"));
-        p.setBioEn((String) body.get("bioEn"));
-        p.setImageUrl((String) body.get("imageUrl"));
-        String birthDeathDateError = parseAndApplyBirthDeathDate(p, asString(body.get("birthDeathDate")));
-        if (birthDeathDateError != null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", birthDeathDateError));
-        }
-        if (p.getBirthYear() == null) {
-            p.setBirthYear(asInteger(body.get("birthYear")));
-            p.setDeathYear(asInteger(body.get("deathYear")));
-        }
-        Philosopher saved = philosopherService.savePhilosopherForAdmin(p, adminUser);
-        savePhilosopherTranslation(saved, (String) body.get("nameEn"), (String) body.get("bioEn"));
-        return ResponseEntity.ok(Map.of("success", true, "philosopher", philosopherMap(saved)));
+        return createPhilosopherInternal(auth, body, null);
     }
 
-    @PutMapping("/philosophers/{id}")
+    @PostMapping(value = "/philosophers", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, Object>> createPhilosopherMultipart(
+        Authentication auth,
+        @RequestParam Map<String, String> params,
+        @RequestParam(value = "imageFile", required = false) MultipartFile imageFile
+    ) {
+        Map<String, Object> body = new HashMap<>();
+        body.putAll(params);
+        return createPhilosopherInternal(auth, body, imageFile);
+    }
+
+    @PutMapping(value = "/philosophers/{id}", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> updatePhilosopher(Authentication auth, @PathVariable Long id, @RequestBody Map<String, Object> body) {
-        User adminUser = requireAdminUser(auth);
-        Philosopher p = philosopherService.getPhilosopherById(id);
-        if (p == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "哲学家不存在"));
-        }
-        String name = String.valueOf(body.getOrDefault("name", p.getName())).trim();
-        if (name.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "哲学家姓名不能为空"));
-        }
-        p.setName(name);
-        p.setNameEn((String) body.getOrDefault("nameEn", p.getNameEn()));
-        p.setBio((String) body.getOrDefault("bio", p.getBio()));
-        p.setBioEn((String) body.getOrDefault("bioEn", p.getBioEn()));
-        p.setImageUrl((String) body.getOrDefault("imageUrl", p.getImageUrl()));
-        String birthDeathDateError = parseAndApplyBirthDeathDate(p, asString(body.get("birthDeathDate")));
-        if (birthDeathDateError != null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", birthDeathDateError));
-        }
-        if (body.containsKey("birthYear") || body.containsKey("deathYear")) {
-            p.setBirthYear(asInteger(body.getOrDefault("birthYear", p.getBirthYear())));
-            p.setDeathYear(asInteger(body.getOrDefault("deathYear", p.getDeathYear())));
-        }
-        Philosopher saved = philosopherService.savePhilosopherForAdmin(p, adminUser);
-        savePhilosopherTranslation(saved, (String) body.get("nameEn"), (String) body.get("bioEn"));
-        return ResponseEntity.ok(Map.of("success", true, "philosopher", philosopherMap(saved)));
+        return updatePhilosopherInternal(auth, id, body, null);
+    }
+
+    @PutMapping(value = "/philosophers/{id}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, Object>> updatePhilosopherMultipart(
+        Authentication auth,
+        @PathVariable Long id,
+        @RequestParam Map<String, String> params,
+        @RequestParam(value = "imageFile", required = false) MultipartFile imageFile
+    ) {
+        Map<String, Object> body = new HashMap<>();
+        body.putAll(params);
+        return updatePhilosopherInternal(auth, id, body, imageFile);
     }
 
     @DeleteMapping("/philosophers/{id}")

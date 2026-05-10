@@ -20,9 +20,13 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.http.CacheControl;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import jakarta.servlet.http.HttpServletRequest;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Comparator;
@@ -96,6 +100,16 @@ public class HomeController {
 
     private int sanitizeSearchSize(int size) {
         return Math.max(1, Math.min(size, SEARCH_PAGE_MAX_SIZE));
+    }
+
+    private String resolveImageVersion(Philosopher philosopher) {
+        if (philosopher == null || !philosopherService.hasStoredImage(philosopher)) {
+            return null;
+        }
+        if (philosopher.getUpdatedAt() != null) {
+            return philosopher.getUpdatedAt().toString();
+        }
+        return philosopher.getCreatedAt() == null ? null : philosopher.getCreatedAt().toString();
     }
 
     private <T> List<T> previewResults(List<T> items) {
@@ -628,6 +642,7 @@ public class HomeController {
             philosopherData.put("bio", philosopher.getBio());
             philosopherData.put("bioEn", philosopher.getBioEn());
             philosopherData.put("imageUrl", philosopher.getImageUrl());
+            philosopherData.put("imageVersion", resolveImageVersion(philosopher));
             philosopherData.put("birthYear", philosopher.getBirthYear());
             philosopherData.put("deathYear", philosopher.getDeathYear());
             
@@ -740,6 +755,31 @@ public class HomeController {
             response.put("message", "Error loading philosopher data: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
+    }
+
+    @GetMapping("/api/philosophers/{id}/image")
+    @ResponseBody
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
+    public ResponseEntity<byte[]> getPhilosopherImage(@PathVariable("id") Long philosopherId) {
+        Philosopher philosopher = philosopherService.getPhilosopherById(philosopherId);
+        if (philosopher == null || !philosopherService.hasStoredImage(philosopher) || philosopher.getImageData() == null || philosopher.getImageData().length == 0) {
+            return ResponseEntity.notFound().build();
+        }
+
+        MediaType mediaType;
+        try {
+            mediaType = MediaType.parseMediaType(philosopher.getImageContentType());
+        } catch (Exception ignored) {
+            mediaType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+
+        String fileName = philosopher.getImageFileName() == null ? "philosopher-image" : philosopher.getImageFileName().replace("\"", "");
+        return ResponseEntity.ok()
+            .contentType(mediaType)
+            .contentLength(philosopher.getImageData().length)
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + fileName + "\"")
+            .cacheControl(CacheControl.maxAge(Duration.ofHours(1)).cachePublic())
+            .body(philosopher.getImageData());
     }
 
     // API 端点：加载更多哲学家的内容（用于哲学家页面的无限滚动）
