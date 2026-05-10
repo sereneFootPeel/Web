@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR=${ROOT_DIR:-/home/linuxuser/Web}
+FRONTEND_DIR="$ROOT_DIR/frontend"
+BACKEND_DIR="$ROOT_DIR/backend"
+SITE_DIR=${SITE_DIR:-/var/www/philosophy}
+BACKEND_PORT=${BACKEND_PORT:-8080}
+BACKEND_PID_FILE=${BACKEND_PID_FILE:-$BACKEND_DIR/backend.pid}
+BACKEND_LOG=${BACKEND_LOG:-$BACKEND_DIR/backend-run-live.log}
+
+wait_for_port_release() {
+  local port="$1"
+  local attempt
+  for attempt in $(seq 1 15); do
+    if command -v lsof >/dev/null 2>&1; then
+      if ! lsof -ti tcp:"$port" >/dev/null 2>&1; then
+        return 0
+      fi
+    elif command -v ss >/dev/null 2>&1; then
+      if ! ss -ltn | grep -q ":$port[[:space:]]"; then
+        return 0
+      fi
+    else
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+stop_backend() {
+  local pid
+
+  if [ -f "$BACKEND_PID_FILE" ]; then
+    pid=$(cat "$BACKEND_PID_FILE" || true)
+    if [ -n "${pid:-}" ] && kill -0 "$pid" 2>/dev/null; then
+      echo "Stopping backend PID $pid from $BACKEND_PID_FILE"
+      kill "$pid" 2>/dev/null || true
+      sleep 3
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null || true
+      fi
+    fi
+    rm -f "$BACKEND_PID_FILE"
+  fi
+
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k "${BACKEND_PORT}/tcp" >/dev/null 2>&1 || true
+  fi
+
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -ti tcp:"$BACKEND_PORT" | xargs -r kill >/dev/null 2>&1 || true
+  fi
+
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -f 'philosophy-backend-0.0.1-SNAPSHOT.jar|spring-boot:run' >/dev/null 2>&1 || true
+  fi
+
+  wait_for_port_release "$BACKEND_PORT" || {
+    echo "Port $BACKEND_PORT is still occupied after stop attempts" >&2
+    return 1
+  }
+}
+
+echo "[1] pull latest"
+cd "$ROOT_DIR"
+git pull --ff-only origin main
+
+echo "[2] build frontend"
+cd "$FRONTEND_DIR"
+npm install
+npm run build
+sudo mkdir -p "$SITE_DIR"
+sudo rm -rf "$SITE_DIR"/*
+sudo cp -r dist/. "$SITE_DIR/"
+
+echo "[3] update database user"
+mysql -uroot -p'Mmoonj10y?' <<'SQL'
+CREATE USER IF NOT EXISTS 'philosophy_user'@'localhost' IDENTIFIED BY 'Mmoonj10y?';
+ALTER USER 'philosophy_user'@'localhost' IDENTIFIED BY 'Mmoonj10y?';
+CREATE USER IF NOT EXISTS 'philosophy_user'@'%' IDENTIFIED BY 'Mmoonj10y?';
+ALTER USER 'philosophy_user'@'%' IDENTIFIED BY 'Mmoonj10y?';
+GRANT ALL PRIVILEGES ON philosophy_db.* TO 'philosophy_user'@'localhost';
+GRANT ALL PRIVILEGES ON philosophy_db.* TO 'philosophy_user'@'%';
+FLUSH PRIVILEGES;
+SQL
+
+echo "[4] build backend"
+cd "$BACKEND_DIR"
+chmod +x ./mvnw
+./mvnw -q -DskipTests package
+
+echo "[5] restart backend"
+stop_backend
+
+BACKEND_JAR=$(find target -maxdepth 1 -type f -name '*.jar' ! -name '*.original' | head -n 1)
+if [ -z "${BACKEND_JAR:-}" ]; then
+  echo "Backend jar not found after build" >&2
+  exit 1
+fi
+
+rm -f "$BACKEND_LOG"
+env \
+  SPRING_SQL_INIT_MODE=always \
+  SPRING_SQL_INIT_SCHEMA_LOCATIONS=classpath:schema-mysql.sql \
+  SPRING_SQL_INIT_DATA_LOCATIONS= \
+  nohup java -jar "$BACKEND_JAR" > "$BACKEND_LOG" 2>&1 &
+BACKEND_PID=$!
+echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
+
+echo "[6] wait and verify"
+for attempt in $(seq 1 30); do
+  if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+    echo "Backend process exited early. Last log lines:" >&2
+    tail -n 120 "$BACKEND_LOG" >&2 || true
+    exit 1
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    if curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/health" >/dev/null 2>&1; then
+      break
+    fi
+  elif command -v ss >/dev/null 2>&1; then
+    if ss -ltn | grep -q ":${BACKEND_PORT}[[:space:]]"; then
+      break
+    fi
+  fi
+
+  if [ "$attempt" -eq 30 ]; then
+    echo "Backend did not become healthy in time. Last log lines:" >&2
+    tail -n 120 "$BACKEND_LOG" >&2 || true
+    exit 1
+  fi
+
+  sleep 2
+done
+
+if command -v ss >/dev/null 2>&1; then
+  ss -ltnp | grep ":${BACKEND_PORT}" || true
+fi
+mysql -uroot -p'Mmoonj10y?' -D philosophy_db -e "SELECT COUNT(*) AS history_country_count FROM history_country; SELECT COUNT(*) AS history_event_count FROM history_event;"
+if command -v curl >/dev/null 2>&1; then
+  curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/history/snapshot?year=1900" || true
+  curl -s -o /dev/null -w "site_status=%{http_code}\n" http://127.0.0.1/ || true
+fi
+
+echo "Deployment finished. Backend PID=$BACKEND_PID, log=$BACKEND_LOG"
+
