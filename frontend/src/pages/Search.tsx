@@ -10,6 +10,7 @@ import {
 import { ContentCard } from '../components/ContentCard'
 import { PhilosopherCard } from '../components/PhilosopherCard'
 import { useLanguage } from '../contexts/LanguageContext'
+import { useAutoLoadMore } from '../hooks/useAutoLoadMore'
 
 type SearchResult = {
   philosophers: SearchPhilosopherItem[]
@@ -109,7 +110,7 @@ export function Search() {
     schools: true,
     contents: true,
   })
-  const toggleSection = (key: string) =>
+  const toggleSection = (key: SearchCategory) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
 
   // URL 中的 q 变化时（含从 Footer 跳转、直接访问、表单提交）自动执行搜索
@@ -185,36 +186,32 @@ export function Search() {
       })
       setTotals((prev) => ({ ...prev, [category]: res.totalCount ?? prev[category] }))
     } catch (e) {
-      setError(e instanceof Error ? e.message : t('加载更多失败', 'Failed to load more results'))
+      setError(e instanceof Error ? e.message : t('自动加载失败', 'Failed to load more results automatically'))
     } finally {
       setLoadingMore((prev) => ({ ...prev, [category]: false }))
     }
   }
 
-  const renderLoadMore = (category: SearchCategory) => {
-    if (!results || results[category].length >= totals[category]) {
-      return null
-    }
-    return (
-      <div className="pt-1">
-        <button
-          type="button"
-          onClick={() => void handleLoadMore(category)}
-          disabled={loadingMore[category]}
-          className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-50"
-          style={{
-            borderColor: 'var(--border-primary)',
-            background: 'var(--bg-secondary, var(--bg-primary))',
-            color: 'var(--text-primary)',
-          }}
-        >
-          {loadingMore[category]
-            ? t('加载中...', 'Loading...')
-            : t('加载更多', 'Load more')}
-        </button>
-      </div>
-    )
-  }
+  const philosopherSentinelRef = useAutoLoadMore({
+    enabled: Boolean(results && expanded.philosophers),
+    hasMore: Boolean(results && results.philosophers.length < totals.philosophers),
+    loading: loading || loadingMore.philosophers,
+    onLoadMore: () => handleLoadMore('philosophers'),
+  })
+
+  const schoolSentinelRef = useAutoLoadMore({
+    enabled: Boolean(results && expanded.schools),
+    hasMore: Boolean(results && results.schools.length < totals.schools),
+    loading: loading || loadingMore.schools,
+    onLoadMore: () => handleLoadMore('schools'),
+  })
+
+  const contentSentinelRef = useAutoLoadMore({
+    enabled: Boolean(results && expanded.contents),
+    hasMore: Boolean(results && results.contents.length < totals.contents),
+    loading: loading || loadingMore.contents,
+    onLoadMore: () => handleLoadMore('contents'),
+  })
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -264,7 +261,15 @@ export function Search() {
                   <PhilosopherCard key={p.id} philosopher={p} />
                 ))}
               </div>
-              {renderLoadMore('philosophers')}
+              {results.philosophers.length < totals.philosophers && (
+                <div ref={philosopherSentinelRef} className="flex min-h-8 items-center justify-center pt-1">
+                  {loadingMore.philosophers ? (
+                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {t('加载中...', 'Loading...')}
+                    </span>
+                  ) : null}
+                </div>
+              )}
             </SearchResultSection>
           )}
           {results.schools.length > 0 && (
@@ -283,7 +288,15 @@ export function Search() {
                   />
                 ))}
               </div>
-              {renderLoadMore('schools')}
+              {results.schools.length < totals.schools && (
+                <div ref={schoolSentinelRef} className="flex min-h-8 items-center justify-center pt-1">
+                  {loadingMore.schools ? (
+                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {t('加载中...', 'Loading...')}
+                    </span>
+                  ) : null}
+                </div>
+              )}
             </SearchResultSection>
           )}
           {results.contents.length > 0 && (
@@ -296,7 +309,15 @@ export function Search() {
               {results.contents.map((item) => (
                 <ContentCard key={item.id} item={item} showSchool={true} showLikeButton={true} t={t} />
               ))}
-              {renderLoadMore('contents')}
+              {results.contents.length < totals.contents && (
+                <div ref={contentSentinelRef} className="flex min-h-8 items-center justify-center pt-1">
+                  {loadingMore.contents ? (
+                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {t('加载中...', 'Loading...')}
+                    </span>
+                  ) : null}
+                </div>
+              )}
             </SearchResultSection>
           )}
           {results.philosophers.length === 0 &&

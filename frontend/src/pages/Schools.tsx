@@ -9,6 +9,7 @@ import {
 import { useLanguage } from '../contexts/LanguageContext'
 import { ContentCard } from '../components/ContentCard'
 import { comparePinyinText } from '../utils/pinyinSort'
+import { useAutoLoadMore } from '../hooks/useAutoLoadMore'
 
 function compareSchoolNodes(a: SchoolNode, b: SchoolNode, language: 'zh' | 'en') {
   if (language === 'zh') {
@@ -273,6 +274,13 @@ export function Schools() {
     }
   }
 
+  const loadMoreSentinelRef = useAutoLoadMore({
+    enabled: Boolean(selectedId && contents.length > 0),
+    hasMore,
+    loading: loadingContents,
+    onLoadMore: loadMore,
+  })
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <aside className="md:col-span-1 self-start">
@@ -331,14 +339,13 @@ export function Schools() {
                   <ContentCard key={item.id} item={item} showSchool={true} showLikeButton={true} t={t} />
                 ))}
                 {hasMore && (
-                  <button
-                    onClick={loadMore}
-                    disabled={loadingContents}
-                    className="px-4 py-2 rounded border text-sm"
-                    style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
-                  >
-                    {loadingContents ? t('加载中...', 'Loading...') : t('加载更多', 'Load more')}
-                  </button>
+                  <div ref={loadMoreSentinelRef} className="flex min-h-8 items-center justify-center">
+                    {loadingContents ? (
+                      <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        {t('加载中...', 'Loading...')}
+                      </span>
+                    ) : null}
+                  </div>
                 )}
               </div>
             ) : (

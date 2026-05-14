@@ -98,72 +98,75 @@ export function ContentCard({
       tabIndex={0}
       onClick={handleCardClick}
       onKeyDown={(e) => e.key === 'Enter' && handleCardClick()}
-      className="group relative rounded-lg border p-4 transition-all duration-300 hover:shadow-md cursor-pointer"
+      className="group relative rounded-lg border p-6 transition-all duration-300 hover:shadow-md cursor-pointer"
       style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-primary)' }}
     >
-      {showLikeButton && (
-        <button
-          type="button"
-          className="absolute top-3 right-3 z-10 flex items-center justify-center w-9 h-9 rounded-full transition-opacity duration-300 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 hover:bg-red-50"
-          onClick={handleLikeClick}
-          title={isLiked ? t('取消点赞', 'Unlike') : t('点赞', 'Like')}
-          disabled={loading}
-        >
-          {loading ? (
-            <i className="fa-solid fa-spinner fa-spin text-sm text-gray-400" />
-          ) : (
-            <i
-              className={
-                isLiked
-                  ? 'fa-solid fa-heart text-red-500'
-                  : 'fa-regular fa-heart text-gray-400 hover:text-red-500 transition-colors duration-200'
-              }
-            />
-          )}
-        </button>
-      )}
-
-      <div className="flex flex-wrap gap-2 mb-2">
-        {item.school?.parent && (
-          item.school.parent.id != null ? (
-            <Link
-              to={`/schools?schoolId=${item.school.parent.id}`}
-              className="text-xs hover:underline"
-              style={{ color: 'var(--text-primary)' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {getLocalizedName(item.school.parent, language)}
-            </Link>
-          ) : (
-            <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
-              {getLocalizedName(item.school.parent, language)}
-            </span>
-          )
-        )}
-        {(showSchool || item.school?.parent) && item.school && (
-          item.school.id != null ? (
-            <Link
-              to={`/schools?schoolId=${item.school.id}`}
-              className="text-xs hover:underline"
-              style={{ color: 'var(--text-primary)' }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {getLocalizedName(item.school, language)}
-            </Link>
-          ) : (
-            <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
-              {getLocalizedName(item.school, language)}
-            </span>
-          )
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap gap-2">
+            {item.school?.parent && (
+              item.school.parent.id != null ? (
+                <Link
+                  to={`/schools?schoolId=${item.school.parent.id}`}
+                  className="text-xs hover:underline"
+                  style={{ color: 'var(--text-primary)' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {getLocalizedName(item.school.parent, language)}
+                </Link>
+              ) : (
+                <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                  {getLocalizedName(item.school.parent, language)}
+                </span>
+              )
+            )}
+            {(showSchool || item.school?.parent) && item.school && (
+              item.school.id != null ? (
+                <Link
+                  to={`/schools?schoolId=${item.school.id}`}
+                  className="text-xs hover:underline"
+                  style={{ color: 'var(--text-primary)' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {getLocalizedName(item.school, language)}
+                </Link>
+              ) : (
+                <span className="text-xs" style={{ color: 'var(--text-primary)' }}>
+                  {getLocalizedName(item.school, language)}
+                </span>
+              )
+            )}
+          </div>
+        </div>
+        {showLikeButton && (
+          <button
+            type="button"
+            className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-full transition-opacity duration-300 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 hover:bg-red-50"
+            onClick={handleLikeClick}
+            title={isLiked ? t('取消点赞', 'Unlike') : t('点赞', 'Like')}
+            disabled={loading}
+          >
+            {loading ? (
+              <i className="fa-solid fa-spinner fa-spin text-sm text-gray-400" />
+            ) : (
+              <i
+                className={
+                  isLiked
+                    ? 'fa-solid fa-heart text-red-500'
+                    : 'fa-regular fa-heart text-gray-400 hover:text-red-500 transition-colors duration-200'
+                }
+              />
+            )}
+          </button>
         )}
       </div>
 
       {item.title && (
-        <h4 className={`font-semibold mb-2 ${showLikeButton ? 'pr-10' : ''}`}>
+        <h4 className="font-semibold mb-2">
           {item.title}
         </h4>
       )}
-      <p className={`text-sm whitespace-pre-wrap ${showLikeButton && !item.title ? 'pr-10' : ''}`}>
+      <p className="text-sm whitespace-pre-wrap">
         {localizedText || t('暂无内容', 'No content yet')}
       </p>
       {item.philosopher && (
