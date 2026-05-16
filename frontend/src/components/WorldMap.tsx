@@ -64,7 +64,7 @@ function projectToPixel(
 
 export function WorldMap({
   markers = [],
-  selectedRegionId = null,
+  selectedRegionId: _selectedRegionId = null,
   onMarkerClick,
 }: WorldMapProps) {
   const { t } = useLanguage()
@@ -207,13 +207,13 @@ export function WorldMap({
         ))}
         <g aria-label={t('历史地区标记', 'History region markers')}>
           {projectedMarkers.map((m) => {
-            const selected = selectedRegionId != null && m.regionId === selectedRegionId
             return (
               <g key={m.regionId} transform={`translate(${m.x},${m.y})`}>
                 <circle
                   r={19 * MARKER_SCALE}
                   fill="transparent"
                   className="cursor-pointer"
+                  style={{ outline: 'none' }}
                   onClick={() => onMarkerClick?.(m.regionId)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -228,15 +228,15 @@ export function WorldMap({
                 <g transform={`scale(${MARKER_SCALE})`} className="pointer-events-none">
                   <path
                     d="M0,8.2 C-7,-2 -10,-5.9 -10,-10 A 10 10 0 1 1 10,-10 C10,-5.9 7,-2 0,8.2 Z"
-                    fill={selected ? '#1f1f1f' : '#9a9a9a'}
-                    stroke={selected ? '#000000' : '#f3f4f6'}
-                    strokeWidth={selected ? 1.7 : 1.4}
+                    fill="#9a9a9a"
+                    stroke="#f3f4f6"
+                    strokeWidth={1.4}
                   />
                   <circle
                     cx="0"
                     cy="-10"
                     r="3.4"
-                    fill={selected ? '#fafafa' : '#ffffff'}
+                    fill="#ffffff"
                   />
                 </g>
               </g>
