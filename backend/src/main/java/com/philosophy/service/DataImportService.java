@@ -2220,9 +2220,6 @@ public class DataImportService {
                     addUpdateColumn(updateAssignments, updateParams, tableName, "image_data", philosopher.getImageData(), context, false);
                     addUpdateColumn(updateAssignments, updateParams, tableName, "image_content_type", philosopher.getImageContentType(), context, false);
                     addUpdateColumn(updateAssignments, updateParams, tableName, "image_file_name", philosopher.getImageFileName(), context, false);
-                    if (ensureColumnExists(tableName, "image_url", false, context)) {
-                        updateAssignments.add("image_url = NULL");
-                    }
                     addUpdateColumn(updateAssignments, updateParams, tableName, "like_count",
                             philosopher.getLikeCount() != null ? philosopher.getLikeCount() : 0, context, false);
 
@@ -2266,10 +2263,6 @@ public class DataImportService {
                         addInsertColumn(insertColumns, insertParams, tableName, "image_data", philosopher.getImageData(), context, false);
                         addInsertColumn(insertColumns, insertParams, tableName, "image_content_type", philosopher.getImageContentType(), context, false);
                         addInsertColumn(insertColumns, insertParams, tableName, "image_file_name", philosopher.getImageFileName(), context, false);
-                        if (ensureColumnExists(tableName, "image_url", false, context)) {
-                            insertColumns.add("image_url");
-                            insertParams.add(null);
-                        }
                         addInsertColumn(insertColumns, insertParams, tableName, "like_count",
                                 philosopher.getLikeCount() != null ? philosopher.getLikeCount() : 0, context, false);
 

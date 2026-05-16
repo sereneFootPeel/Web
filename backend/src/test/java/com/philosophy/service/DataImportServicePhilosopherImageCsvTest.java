@@ -72,7 +72,7 @@ class DataImportServicePhilosopherImageCsvTest {
         assertTrue(updateSql.get().contains("image_data = ?"));
         assertTrue(updateSql.get().contains("image_content_type = ?"));
         assertTrue(updateSql.get().contains("image_file_name = ?"));
-        assertTrue(updateSql.get().contains("image_url = NULL"));
+        assertTrue(updateSql.get().contains("image_file_name = ?, like_count = ?"));
         assertTrue(updateParams.containsValue("image/png"));
         assertTrue(updateParams.containsValue("plato.png"));
         byte[] importedImageBytes = updateParams.values().stream()

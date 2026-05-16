@@ -142,9 +142,6 @@ public class Philosopher {
         return "/api/philosophers/" + id + "/image";
     }
 
-    public void setImageUrl(String imageUrl) {
-        // 兼容旧调用：图片已改为数据库存储，不再接受外部 URL 持久化。
-    }
 
     public byte[] getImageData() {
         return imageData;

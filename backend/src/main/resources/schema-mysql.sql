@@ -78,7 +78,7 @@ SET @philosophers_has_image_data := (
 );
 SET @philosophers_add_image_data_sql := IF(
     @philosophers_has_image_data = 0,
-    'ALTER TABLE philosophers ADD COLUMN image_data LONGBLOB NULL AFTER image_url',
+    'ALTER TABLE philosophers ADD COLUMN image_data LONGBLOB NULL',
     'SELECT 1'
 );
 PREPARE philosophers_add_image_data_stmt FROM @philosophers_add_image_data_sql;
@@ -117,8 +117,4 @@ PREPARE philosophers_add_image_file_name_stmt FROM @philosophers_add_image_file_
 EXECUTE philosophers_add_image_file_name_stmt;
 DEALLOCATE PREPARE philosophers_add_image_file_name_stmt;
 
-UPDATE philosophers
-SET image_url = NULL
-WHERE image_data IS NOT NULL
-  AND OCTET_LENGTH(image_data) > 0;
 
