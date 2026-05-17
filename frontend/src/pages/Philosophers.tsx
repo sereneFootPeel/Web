@@ -13,8 +13,12 @@ export function Philosophers() {
   const [offset, setOffset] = useState(0)
   const [loadingMore, setLoadingMore] = useState(false)
   const [mobileListOpen, setMobileListOpen] = useState(false)
+  const [desktopListHeight, setDesktopListHeight] = useState<number | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const mobileListRef = useRef<HTMLDivElement>(null)
+  const contentInnerRef = useRef<HTMLDivElement>(null)
+  const measureFrameRef = useRef<number | null>(null)
 
   const loadNames = useCallback(async (off = 0) => {
     if (off > 0) setLoadingMore(true)
@@ -114,10 +118,65 @@ export function Philosophers() {
     if (id && !isNaN(id)) loadPhilosopher(id)
   }, [philosopherId, defaultId])
 
+  const updateDesktopListHeight = useCallback(() => {
+    if (typeof window === 'undefined') return
+
+    if (window.innerWidth < 768) {
+      setDesktopListHeight(null)
+      return
+    }
+
+    const containerTop = Math.max(containerRef.current?.getBoundingClientRect().top ?? 0, 0)
+    const viewportDrivenMinHeight = Math.max(window.innerHeight - containerTop - 24, 320)
+    const rightContentHeight = contentInnerRef.current?.offsetHeight ?? 0
+    const nextHeight = Math.max(viewportDrivenMinHeight, rightContentHeight)
+
+    setDesktopListHeight((prev) => (prev === nextHeight ? prev : nextHeight))
+  }, [])
+
+  const cancelScheduledHeightUpdate = useCallback(() => {
+    if (measureFrameRef.current != null && typeof window !== 'undefined') {
+      window.cancelAnimationFrame(measureFrameRef.current)
+      measureFrameRef.current = null
+    }
+  }, [])
+
+  const scheduleDesktopListHeightUpdate = useCallback(() => {
+    if (typeof window === 'undefined') return
+
+    cancelScheduledHeightUpdate()
+    measureFrameRef.current = window.requestAnimationFrame(() => {
+      measureFrameRef.current = window.requestAnimationFrame(() => {
+        measureFrameRef.current = null
+        updateDesktopListHeight()
+      })
+    })
+  }, [cancelScheduledHeightUpdate, updateDesktopListHeight])
+
+  useEffect(() => {
+    scheduleDesktopListHeightUpdate()
+
+    return () => {
+      cancelScheduledHeightUpdate()
+    }
+  }, [scheduleDesktopListHeightUpdate, cancelScheduledHeightUpdate, selected?.id, selected?.contents.length, selected?.imageUrl, loading, names.length])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleResize = () => scheduleDesktopListHeightUpdate()
+    window.addEventListener('resize', handleResize)
+
+    return () => {
+      window.removeEventListener('resize', handleResize)
+      cancelScheduledHeightUpdate()
+    }
+  }, [scheduleDesktopListHeightUpdate, cancelScheduledHeightUpdate])
+
   const showNavButtons = selected && names.length > 0
 
   return (
-    <div className="flex flex-col md:flex-row gap-6 relative">
+    <div ref={containerRef} className="flex flex-col md:flex-row gap-6 relative">
       {/* 移动端：点击展开的目录 */}
       <div className="md:hidden w-full">
         <button
@@ -168,12 +227,14 @@ export function Philosophers() {
       </div>
 
       {/* 桌面端：左侧哲学家列表 */}
-      <aside className="hidden md:flex w-48 flex-shrink-0 flex-col">
+      <aside
+        className="hidden md:flex w-48 flex-shrink-0 flex-col self-stretch"
+        style={desktopListHeight ? { height: `${desktopListHeight}px` } : undefined}
+      >
         <div
           ref={listRef}
           onScroll={handleScroll}
-          className="space-y-2 overflow-y-auto pr-1"
-          style={{ maxHeight: 'calc(100vh - 10rem)' }}
+          className="space-y-2 overflow-y-auto pr-1 flex-1 min-h-0"
         >
           {names.map((n) => (
             <button
@@ -191,11 +252,12 @@ export function Philosophers() {
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0">
-        {loading ? (
-          <p>加载中...</p>
-        ) : selected ? (
-          <div>
+      <div className="flex-1 min-w-0 md:self-start">
+        <div ref={contentInnerRef}>
+          {loading ? (
+            <p>加载中...</p>
+          ) : selected ? (
+            <div>
             <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
               {selected.displayName}
             </h1>
@@ -207,6 +269,7 @@ export function Philosophers() {
                     alt={`${selected.displayName} 图片`}
                     className="block h-full w-full"
                     loading="lazy"
+                    onLoad={scheduleDesktopListHeightUpdate}
                   />
                 </div>
               )}
@@ -238,10 +301,11 @@ export function Philosophers() {
                 />
               ))}
             </div>
-          </div>
-        ) : (
-          <p>请选择一位哲学家</p>
-        )}
+            </div>
+          ) : (
+            <p>请选择一位哲学家</p>
+          )}
+        </div>
       </div>
 
       {/* 右下角固定按钮：上一个/下一个哲学家（参考 Philosophy Website） */}

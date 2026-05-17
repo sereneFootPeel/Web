@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { useLanguage } from '../contexts/LanguageContext'
 
 export function Home() {
+  const { t } = useLanguage()
   const rotRef = useRef({ x: 0, y: 0 })
   const dragRef = useRef({ isDragging: false, lastX: 0, lastY: 0, initialX: 0, initialY: 0 })
 
@@ -156,10 +158,10 @@ export function Home() {
           backgroundColor: 'var(--bg-tertiary)',
           color: 'var(--text-primary)',
         }}
-        aria-label="前往哲学家页面"
+        aria-label={t('欢迎游览', 'Welcome')}
       >
         <i className="fa fa-arrow-right" />
-        <span>进入哲学家</span>
+        <span>{t('欢迎游览', 'Welcome')}</span>
       </Link>
     </div>
   )

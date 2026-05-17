@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { geoEqualEarth, geoPath, type GeoProjection } from 'd3-geo'
 import { feature } from 'topojson-client'
 import type { Feature, FeatureCollection } from 'geojson'
@@ -73,6 +73,14 @@ export function WorldMap({
   const [paths, setPaths] = useState<string[]>([])
   const [outlineFailed, setOutlineFailed] = useState(false)
   const [outlineLoading, setOutlineLoading] = useState(true)
+
+  const clearMarkerFocus = useCallback(() => {
+    const active = document.activeElement as
+      | (HTMLElement & { blur?: () => void })
+      | (SVGElement & { blur?: () => void })
+      | null
+    active?.blur?.()
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -214,7 +222,13 @@ export function WorldMap({
                   fill="transparent"
                   className="cursor-pointer"
                   style={{ outline: 'none' }}
-                  onClick={() => onMarkerClick?.(m.regionId)}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                  }}
+                  onClick={() => {
+                    onMarkerClick?.(m.regionId)
+                    requestAnimationFrame(clearMarkerFocus)
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault()

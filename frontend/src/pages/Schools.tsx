@@ -285,11 +285,10 @@ export function Schools() {
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <aside className="md:col-span-1 self-start">
         <div
-          className="sticky top-20 rounded-lg border p-4 overflow-y-auto"
+          className="rounded-lg border p-4"
           style={{
             borderColor: 'var(--border-primary)',
             background: 'var(--bg-primary)',
-            maxHeight: 'calc(100vh - 6rem)',
           }}
         >
           {loading ? (
