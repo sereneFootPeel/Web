@@ -5,10 +5,13 @@ ROOT_DIR=${ROOT_DIR:-/home/linuxuser/Web}
 FRONTEND_DIR="$ROOT_DIR/frontend"
 BACKEND_DIR="$ROOT_DIR/backend"
 SITE_DIR=${SITE_DIR:-/var/www/philosophy}
+GIT_REMOTE=${GIT_REMOTE:-origin}
+GIT_BRANCH=${GIT_BRANCH:-main}
 BACKEND_PORT=${BACKEND_PORT:-8080}
 BACKEND_PID_FILE=${BACKEND_PID_FILE:-$BACKEND_DIR/backend.pid}
 BACKEND_LOG=${BACKEND_LOG:-$BACKEND_DIR/backend-run-live.log}
 HEALTH_URL=${HEALTH_URL:-http://127.0.0.1:${BACKEND_PORT}/api/health}
+SITE_URL=${SITE_URL:-http://127.0.0.1}
 HEALTH_MAX_ATTEMPTS=${HEALTH_MAX_ATTEMPTS:-60}
 HEALTH_SLEEP_SECONDS=${HEALTH_SLEEP_SECONDS:-2}
 
@@ -21,6 +24,9 @@ SPRING_DATASOURCE_URL_VALUE=${SPRING_DATASOURCE_URL_VALUE:-jdbc:mysql://localhos
 SPRING_DATASOURCE_USERNAME_VALUE=${SPRING_DATASOURCE_USERNAME_VALUE:-$APP_DB_USER}
 SPRING_DATASOURCE_PASSWORD_VALUE=${SPRING_DATASOURCE_PASSWORD_VALUE:-$APP_DB_PASSWORD}
 APP_FRONTEND_URL=${APP_FRONTEND_URL:-http://localhost:5173}
+
+BUILT_CSS_ASSET=
+BUILT_JS_ASSET=
 
 on_error() {
   local exit_code="$1"
@@ -40,6 +46,30 @@ require_cmd() {
     echo "Required command not found: $cmd" >&2
     exit 1
   fi
+}
+
+extract_asset_from_index() {
+  local extension="$1"
+  local index_file="$2"
+  grep -oE "/assets/[^\"']+\.${extension}" "$index_file" | head -n 1
+}
+
+sync_repository() {
+  echo "[1] sync repository"
+  cd "$ROOT_DIR"
+
+  require_cmd git
+  git fetch "$GIT_REMOTE" "$GIT_BRANCH"
+
+  if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
+    echo "Repository has local changes or untracked files. Refusing to deploy a mixed state." >&2
+    git status --short >&2 || true
+    exit 1
+  fi
+
+  git checkout "$GIT_BRANCH"
+  git pull --ff-only "$GIT_REMOTE" "$GIT_BRANCH"
+  echo "Deploying commit $(git rev-parse --short HEAD) from ${GIT_REMOTE}/${GIT_BRANCH}"
 }
 
 mysql_root_exec() {
@@ -114,9 +144,37 @@ prepare_frontend() {
   fi
 
   npm run build
+  if [ ! -f dist/index.html ]; then
+    echo "Frontend build did not produce dist/index.html" >&2
+    exit 1
+  fi
+
+  BUILT_CSS_ASSET=$(extract_asset_from_index css dist/index.html)
+  BUILT_JS_ASSET=$(extract_asset_from_index js dist/index.html)
+  if [ -z "${BUILT_CSS_ASSET:-}" ] || [ -z "${BUILT_JS_ASSET:-}" ]; then
+    echo "Unable to detect built frontend asset names from dist/index.html" >&2
+    exit 1
+  fi
+
+  echo "Built frontend assets: CSS=${BUILT_CSS_ASSET}, JS=${BUILT_JS_ASSET}"
   sudo mkdir -p "$SITE_DIR"
-  sudo rm -rf "$SITE_DIR"/*
+  sudo find "$SITE_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
   sudo cp -r dist/. "$SITE_DIR/"
+
+  if ! sudo test -f "$SITE_DIR/index.html"; then
+    echo "Frontend site index was not copied to $SITE_DIR" >&2
+    exit 1
+  fi
+
+  if ! sudo test -f "$SITE_DIR${BUILT_CSS_ASSET}"; then
+    echo "Deployed CSS asset missing: $SITE_DIR${BUILT_CSS_ASSET}" >&2
+    exit 1
+  fi
+
+  if ! sudo test -f "$SITE_DIR${BUILT_JS_ASSET}"; then
+    echo "Deployed JS asset missing: $SITE_DIR${BUILT_JS_ASSET}" >&2
+    exit 1
+  fi
 }
 
 prepare_database_user() {
@@ -170,6 +228,16 @@ verify_deployment() {
   echo "[6] wait and verify"
   wait_for_http_health
 
+  if ! grep -q "$BUILT_CSS_ASSET" "$SITE_DIR/index.html"; then
+    echo "Deployed index.html does not reference expected CSS asset: $BUILT_CSS_ASSET" >&2
+    exit 1
+  fi
+
+  if ! grep -q "$BUILT_JS_ASSET" "$SITE_DIR/index.html"; then
+    echo "Deployed index.html does not reference expected JS asset: $BUILT_JS_ASSET" >&2
+    exit 1
+  fi
+
   if command -v ss >/dev/null 2>&1; then
     ss -ltnp | grep ":${BACKEND_PORT}" || true
   fi
@@ -182,6 +250,21 @@ verify_deployment() {
     curl -fsS "$HEALTH_URL" || true
     curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/history/snapshot?year=1900" || true
     curl -s -o /dev/null -w "site_status=%{http_code}\n" http://127.0.0.1/ || true
+
+    local live_homepage
+    live_homepage=$(curl -fsS "$SITE_URL/" || true)
+    if [ -z "${live_homepage:-}" ]; then
+      echo "Unable to fetch homepage from $SITE_URL for frontend asset verification" >&2
+      exit 1
+    fi
+    if [[ "$live_homepage" != *"$BUILT_CSS_ASSET"* ]]; then
+      echo "Live homepage does not reference newly built CSS asset: $BUILT_CSS_ASSET" >&2
+      exit 1
+    fi
+    if [[ "$live_homepage" != *"$BUILT_JS_ASSET"* ]]; then
+      echo "Live homepage does not reference newly built JS asset: $BUILT_JS_ASSET" >&2
+      exit 1
+    fi
   fi
 
   echo "Deployment finished. Backend PID=$BACKEND_PID, log=$BACKEND_LOG"
@@ -221,10 +304,7 @@ stop_backend() {
   }
 }
 
-echo "[1] pull latest"
-cd "$ROOT_DIR"
-git pull --ff-only origin main
-
+sync_repository
 prepare_frontend
 prepare_database_user
 build_backend
