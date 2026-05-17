@@ -54,12 +54,17 @@ extract_asset_from_index() {
   grep -oE "/assets/[^\"']+\.${extension}" "$index_file" | head -n 1
 }
 
+cleanup_generated_repo_files() {
+  rm -f "$BACKEND_PID_FILE"
+}
+
 sync_repository() {
   echo "[1] sync repository"
   cd "$ROOT_DIR"
 
   require_cmd git
   git fetch "$GIT_REMOTE" "$GIT_BRANCH"
+  cleanup_generated_repo_files
 
   if [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
     echo "Repository has local changes or untracked files. Refusing to deploy a mixed state." >&2
