@@ -150,16 +150,16 @@ export function Home() {
       <canvas id="homeCanvas" className="absolute inset-0 w-full h-full" />
 
       <Link
-        to="/quotes"
+        to="/philosophers"
         className="welcome-button fixed bottom-4 sm:bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-lg px-4 py-3 sm:px-7 sm:py-5 text-sm sm:text-lg cursor-pointer transition-colors duration-300 hover:shadow-lg active:scale-95 backdrop-blur-sm touch-manipulation min-h-[44px] flex items-center justify-center gap-2"
         style={{
           backgroundColor: 'var(--bg-tertiary)',
           color: 'var(--text-primary)',
         }}
-        aria-label="欢迎游览"
+        aria-label="前往哲学家页面"
       >
         <i className="fa fa-arrow-right" />
-        <span>欢迎游览</span>
+        <span>进入哲学家</span>
       </Link>
     </div>
   )

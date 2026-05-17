@@ -4,7 +4,6 @@ import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 
 const navItems = [
-  { path: '/quotes', labelZh: '推荐', labelEn: 'Recommended', icon: 'fa-quote-left' },
   { path: '/philosophers', labelZh: '哲学家', labelEn: 'Philosophers', icon: 'fa-users' },
   { path: '/schools', labelZh: '学派', labelEn: 'Schools', icon: 'fa-university' },
    { path: '/history', labelZh: '历史', labelEn: 'History', icon: 'fa-map-marker-alt' },
