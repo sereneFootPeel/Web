@@ -38,6 +38,8 @@ export type YearRulerProps = {
 export function YearRuler({ className = '', year, onYearChange, onYearSelect, scrollSyncNonce = 0 }: YearRulerProps) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const snapTimerRef = useRef<number | null>(null)
+  const programmaticScrollTimerRef = useRef<number | null>(null)
+  const isProgrammaticScrollRef = useRef(false)
   const onYearChangeRef = useRef(onYearChange)
   onYearChangeRef.current = onYearChange
   const [centerYear, setCenterYear] = useState<number | null>(null)
@@ -81,7 +83,15 @@ export function YearRuler({ className = '', year, onYearChange, onYearSelect, sc
         window.clearTimeout(snapTimerRef.current)
         snapTimerRef.current = null
       }
+      if (programmaticScrollTimerRef.current != null) {
+        window.clearTimeout(programmaticScrollTimerRef.current)
+      }
+      isProgrammaticScrollRef.current = true
       el.scrollTo({ top: target, behavior: 'smooth' })
+      programmaticScrollTimerRef.current = window.setTimeout(() => {
+        isProgrammaticScrollRef.current = false
+        programmaticScrollTimerRef.current = null
+      }, 240)
     },
     [topBase],
   )
@@ -162,6 +172,9 @@ export function YearRuler({ className = '', year, onYearChange, onYearSelect, sc
 
     const onScroll = () => {
       updateCenterTick()
+      if (isProgrammaticScrollRef.current) {
+        return
+      }
       if (snapTimerRef.current != null) {
         window.clearTimeout(snapTimerRef.current)
       }
@@ -176,6 +189,9 @@ export function YearRuler({ className = '', year, onYearChange, onYearSelect, sc
       el.removeEventListener('scroll', onScroll)
       if (snapTimerRef.current != null) {
         window.clearTimeout(snapTimerRef.current)
+      }
+      if (programmaticScrollTimerRef.current != null) {
+        window.clearTimeout(programmaticScrollTimerRef.current)
       }
     }
   }, [labeledTickTops])
