@@ -49,13 +49,6 @@ function extractTimelineYear(year: number) {
   return Math.abs(year) >= 10000 ? Math.trunc(year / 10000) : year
 }
 
-function historyYearDistance(a: number, b: number) {
-  if ((a < 0 && b < 0) || (a > 0 && b > 0)) {
-    return Math.abs(a - b)
-  }
-  return Math.abs(a) + Math.abs(b) - 1
-}
-
 function isInteractiveElement(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false
   return Boolean(target.closest('a, button, input, textarea, select, label, summary, [role="button"]'))
@@ -285,21 +278,17 @@ export function HistoryCardsPanel({
     )
     if (eventItems.length === 0) return
 
-    let closestItem: HTMLElement | null = null
-    let closestDistance = Number.POSITIVE_INFINITY
+    const activeAnchorYear = normalizeToHistoryCenturyAnchor(activeYear)
 
-    eventItems.forEach((item) => {
-      const rawYear = Number.parseInt(item.getAttribute('data-raw-year') || '', 10)
-      if (Number.isNaN(rawYear)) return
-      const distance = historyYearDistance(rawYear, activeYear)
-      if (distance < closestDistance) {
-        closestDistance = distance
-        closestItem = item
-      }
+    const anchoredItem = eventItems.find((item) => {
+      const anchorYear = Number.parseInt(item.getAttribute('data-anchor-year') || '', 10)
+      return !Number.isNaN(anchorYear) && anchorYear === activeAnchorYear
     })
 
-    if (!closestItem) return
-    scrollItemToTop(closestItem, { smooth: true, markUserScroll: false, reportAfterScroll: false })
+    if (anchoredItem) {
+      scrollItemToTop(anchoredItem, { smooth: true, markUserScroll: false, reportAfterScroll: false })
+      return
+    }
   }, [activeYear, scrollToYearNonce, loading, error, timelineItems, scrollItemToTop])
 
   if (!open) return null
