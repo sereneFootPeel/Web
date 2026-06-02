@@ -44,7 +44,6 @@ class AdminApiControllerCsvExportTest {
     private TranslationService translationService;
 
     private AdminApiController controller;
-    private User adminUser;
     private TestingAuthenticationToken auth;
 
     @BeforeEach
@@ -59,7 +58,7 @@ class AdminApiControllerCsvExportTest {
             translationService
         );
 
-        adminUser = new User();
+        User adminUser = new User();
         adminUser.setId(1L);
         adminUser.setUsername("admin");
         adminUser.setEmail("admin@example.com");
@@ -93,7 +92,9 @@ class AdminApiControllerCsvExportTest {
         assertEquals(200, response.getStatusCode().value());
         assertEquals("attachment; filename=\"philosophy_data_export_20260521080000.csv\"",
             response.getHeaders().getFirst("Content-Disposition"));
+        assertNotNull(response.getHeaders().getContentType());
         assertEquals("text/csv;charset=UTF-8", response.getHeaders().getContentType().toString());
+        assertNotNull(response.getBody());
         assertEquals("﻿a,b", new String(response.getBody(), StandardCharsets.UTF_8));
     }
 }

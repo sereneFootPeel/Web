@@ -3,9 +3,8 @@ package com.philosophy.controller;
 import com.philosophy.model.Philosopher;
 import com.philosophy.model.User;
 import com.philosophy.service.ContentService;
-import com.philosophy.service.DataExportService;
+import com.philosophy.service.CsvExportEmailService;
 import com.philosophy.service.DataImportService;
-import com.philosophy.service.EmailService;
 import com.philosophy.service.PhilosopherService;
 import com.philosophy.service.SchoolService;
 import com.philosophy.service.TranslationService;
@@ -48,9 +47,7 @@ class AdminApiControllerPhilosopherImageTest {
     @Mock
     private DataImportService dataImportService;
     @Mock
-    private DataExportService dataExportService;
-    @Mock
-    private EmailService emailService;
+    private CsvExportEmailService csvExportEmailService;
     @Mock
     private TranslationService translationService;
 
@@ -66,8 +63,7 @@ class AdminApiControllerPhilosopherImageTest {
             schoolService,
             contentService,
             dataImportService,
-            dataExportService,
-            emailService,
+            csvExportEmailService,
             translationService
         );
 

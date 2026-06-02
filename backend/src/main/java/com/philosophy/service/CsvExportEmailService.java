@@ -32,7 +32,7 @@ public class CsvExportEmailService {
         return new CsvExportAttachment(csvBytesWithBom, filename, timestamp);
     }
 
-    public CsvExportAttachment sendCsvExportToEmail(String toEmail, String subjectPrefix, String htmlContent) {
+    public void sendCsvExportToEmail(String toEmail, String subjectPrefix, String htmlContent) {
         if (toEmail == null || toEmail.isBlank()) {
             throw new IllegalArgumentException("收件邮箱不能为空");
         }
@@ -49,7 +49,6 @@ public class CsvExportEmailService {
             attachment.bytes(),
             attachment.filename()
         );
-        return attachment;
     }
 
     public record CsvExportAttachment(byte[] bytes, String filename, String timestamp) {

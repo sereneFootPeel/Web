@@ -78,5 +78,42 @@ class AdminHistoryApiControllerTest {
         assertEquals("192BC", updatedEvent.get("startDateLabel"));
         assertTrue((Boolean) updateBody.get("success"));
     }
+
+    @Test
+    void createEvent_normalizesSlashAndTildeHistoricalDates() {
+        HistoryCountryRepository countryRepository = mock(HistoryCountryRepository.class);
+        HistoryEventRepository eventRepository = mock(HistoryEventRepository.class);
+        AdminHistoryApiController controller = new AdminHistoryApiController(countryRepository, eventRepository);
+
+        HistoryCountry country = new HistoryCountry();
+        country.setId(7L);
+        country.setNameZh("英国");
+        when(countryRepository.findById(7L)).thenReturn(Optional.of(country));
+
+        when(eventRepository.save(any(HistoryEvent.class))).thenAnswer(invocation -> {
+            HistoryEvent event = invocation.getArgument(0);
+            if (event.getId() == null) {
+                event.setId(100L);
+            }
+            return event;
+        });
+
+        TestingAuthenticationToken auth = new TestingAuthenticationToken("admin", "pw", "ROLE_ADMIN");
+        ResponseEntity<Map<String, Object>> response = controller.createEvent(auth, Map.of(
+            "countryId", 7,
+            "startYear", " 1999 /1~2000/1 ",
+            "summaryZh", "世纪转折"
+        ));
+
+        Map<String, Object> body = response.getBody();
+        assertNotNull(body);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> event = (Map<String, Object>) body.get("event");
+        assertNotNull(event);
+        assertEquals(19990100, event.get("startYear"));
+        assertEquals(19990100, event.get("sortDate"));
+        assertEquals("1999/1 - 2000/1", event.get("startDateText"));
+        assertEquals("1999/1 - 2000/1", event.get("startDateLabel"));
+    }
 }
 

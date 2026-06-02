@@ -1,25 +1,18 @@
 package com.philosophy.scheduler;
 
-import com.philosophy.service.CsvExportService;
-import com.philosophy.service.EmailService;
+import com.philosophy.service.CsvExportEmailService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
-import java.util.zip.ZipOutputStream;
-
 @Component
 public class DailyReportScheduler {
 
-    private final CsvExportService csvExportService;
-    private final EmailService emailService;
+    private static final Logger logger = LoggerFactory.getLogger(DailyReportScheduler.class);
+
+    private final CsvExportEmailService csvExportEmailService;
 
     @Value("${app.csv-email.enabled:true}")
     private boolean csvEmailEnabled;
@@ -27,9 +20,8 @@ public class DailyReportScheduler {
     @Value("${app.daily-report.email.recipient}")
     private String recipientEmail;
 
-    public DailyReportScheduler(CsvExportService csvExportService, EmailService emailService) {
-        this.csvExportService = csvExportService;
-        this.emailService = emailService;
+    public DailyReportScheduler(CsvExportEmailService csvExportEmailService) {
+        this.csvExportEmailService = csvExportEmailService;
     }
 
     @Scheduled(cron = "${app.csv-email.cron:0 0 8 * * ?}")
@@ -38,31 +30,17 @@ public class DailyReportScheduler {
             return;
         }
 
-        String tempDir = "temp_csv_export_" + System.currentTimeMillis();
-        Path tempPath = new File(tempDir).toPath();
+        if (recipientEmail == null || recipientEmail.isBlank()) {
+            logger.warn("跳过每日 CSV 邮件发送：未配置收件邮箱");
+            return;
+        }
 
         try {
-            Files.createDirectories(tempPath);
-            csvExportService.exportAllDataToCsv(tempDir);
+            String content = "<html><body><h3>每日数据导出</h3><p>请查收附件中的 CSV 数据文件。</p></body></html>";
 
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            try (ZipOutputStream zos = new ZipOutputStream(baos)) {
-                csvExportService.zipCsvFiles(tempDir, zos);
-            }
-
-            String filename = "export-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")) + ".zip";
-            String subject = "哲学网站每日数据导出 - " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
-            String content = "<html><body><h3>每日数据导出</h3><p>请查收附件中的数据压缩包。</p></body></html>";
-
-            emailService.sendReportWithAttachment(recipientEmail, subject, content, baos.toByteArray(), filename);
-        } catch (IOException e) {
-            // Handle exception, maybe log it
-        } finally {
-            try {
-                csvExportService.cleanUp(tempPath);
-            } catch (IOException e) {
-                // Handle exception
-            }
+            csvExportEmailService.sendCsvExportToEmail(recipientEmail, "哲学网站每日数据导出", content);
+        } catch (Exception e) {
+            logger.error("每日 CSV 邮件发送失败", e);
         }
     }
 }

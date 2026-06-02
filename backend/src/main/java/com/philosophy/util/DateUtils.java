@@ -11,14 +11,89 @@ public class DateUtils {
     private static final Pattern SIGNED_INTEGER_PATTERN = Pattern.compile("^[+-]?\\d+$");
 
     /**
-     * 日期分隔符兼容：支持半角点 "." 与全角点 "．"
+     * 日期分隔符兼容：支持 "."、"．"、"/"、"／"
      */
-    private static final String DATE_SEP = "[\\.．]";
+    private static final String DATE_SEP = "[\\.．/／]";
 
     /**
-     * 范围分隔符兼容：支持 "-"、"–"、"—"、"－"
+     * 范围分隔符兼容：支持 "-"、"–"、"—"、"－"、"~"、"～"
      */
-    private static final String RANGE_SEP = "[-–—－]";
+    private static final String RANGE_SEP = "[-–—－~～]";
+
+    private static final Pattern YEAR_MONTH_DAY_PATTERN = Pattern.compile(
+        "^(c\\.)?\\s*([+-]?\\d+)(?:\\s*(bc))?" + DATE_SEP + "(\\d{1,2})" + DATE_SEP + "(\\d{1,2})$",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern YEAR_MONTH_PATTERN = Pattern.compile(
+        "^(c\\.)?\\s*([+-]?\\d+)(?:\\s*(bc))?" + DATE_SEP + "(\\d{1,2})$",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern YEAR_ONLY_PATTERN = Pattern.compile(
+        "^(c\\.)?\\s*([+-]?\\d+)\\s*(bc)?$",
+        Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern RANGE_PATTERN = Pattern.compile("\\s+-\\s+");
+
+    private static Integer encodeHistoricalDate(int year, int month, int day) {
+        int absolute = Math.abs(year) * 10000 + month * 100 + day;
+        return year < 0 ? -absolute : absolute;
+    }
+
+    private static Integer parseHistoricalYear(String yearText, String bcMarker) {
+        int year = Integer.parseInt(yearText);
+        if (bcMarker != null && !bcMarker.isEmpty()) {
+            return -Math.abs(year);
+        }
+        return year;
+    }
+
+    private static Integer parseHistoricalDatePoint(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+
+        Matcher matcher = YEAR_MONTH_DAY_PATTERN.matcher(text);
+        if (matcher.matches()) {
+            try {
+                int year = parseHistoricalYear(matcher.group(2), matcher.group(3));
+                int month = Integer.parseInt(matcher.group(4));
+                int day = Integer.parseInt(matcher.group(5));
+                if (month < 1 || month > 12 || day < 1 || day > 31) {
+                    return null;
+                }
+                return encodeHistoricalDate(year, month, day);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+
+        matcher = YEAR_MONTH_PATTERN.matcher(text);
+        if (matcher.matches()) {
+            try {
+                int year = parseHistoricalYear(matcher.group(2), matcher.group(3));
+                int month = Integer.parseInt(matcher.group(4));
+                if (month < 1 || month > 12) {
+                    return null;
+                }
+                return encodeHistoricalDate(year, month, 0);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+
+        matcher = YEAR_ONLY_PATTERN.matcher(text);
+        if (matcher.matches()) {
+            try {
+                boolean hasApproxMarker = matcher.group(1) != null;
+                int year = parseHistoricalYear(matcher.group(2), matcher.group(3));
+                return encodeHistoricalDate(year, 0, hasApproxMarker ? 1 : 0);
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+
+        return null;
+    }
     
     /**
      * 将日期范围字符串解析为出生日期的整数格式（YYYYMMDD）
@@ -42,131 +117,13 @@ public class DateUtils {
      * @return 出生日期的整数格式（YYYYMMDD），如果解析失败返回 null
      */
     public static Integer parseBirthDateFromRange(String dateRange) {
-        if (dateRange == null || dateRange.trim().isEmpty()) {
+        String cleaned = normalizeHistoricalDateText(dateRange);
+        if (cleaned == null) {
             return null;
         }
-        
-        // 移除所有空格并转换为小写以便匹配
-        String cleaned = dateRange.trim().replaceAll("\\s+", " ").toLowerCase();
-        
-        // 1. 先尝试匹配完整日期范围格式：Y.M.D - Y.M.D
-        // 兼容：
-        // - 年份 1-4 位（如 121.4.26）
-        // - 分隔符 "."/ "．"
-        // - 范围分隔符 "-" / "–" / "—" / "－"
-        Pattern pattern = Pattern.compile("^(\\d{1,4})" + DATE_SEP + "(\\d{1,2})" + DATE_SEP + "(\\d{1,2})\\s*" + RANGE_SEP + "\\s*(\\d{1,4})" + DATE_SEP + "(\\d{1,2})" + DATE_SEP + "(\\d{1,2})$");
-        Matcher matcher = pattern.matcher(cleaned);
-        
-        if (matcher.matches()) {
-            try {
-                int birthYear = Integer.parseInt(matcher.group(1));
-                int birthMonth = Integer.parseInt(matcher.group(2));
-                int birthDay = Integer.parseInt(matcher.group(3));
-                
-                // 验证日期有效性
-                if (birthMonth < 1 || birthMonth > 12 || birthDay < 1 || birthDay > 31) {
-                    return null;
-                }
-                
-                // 转换为 YYYYMMDD 格式
-                return birthYear * 10000 + birthMonth * 100 + birthDay;
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        
-        // 2. 尝试匹配单个完整日期：Y.M.D（兼容 1-4 位年份与 "."/"．"）
-        // 使用 ^ 和 $ 确保完全匹配，避免部分匹配
-        pattern = Pattern.compile("^(\\d{1,4})" + DATE_SEP + "(\\d{1,2})" + DATE_SEP + "(\\d{1,2})$");
-        matcher = pattern.matcher(cleaned);
-        
-        if (matcher.matches()) {
-            try {
-                int birthYear = Integer.parseInt(matcher.group(1));
-                int birthMonth = Integer.parseInt(matcher.group(2));
-                int birthDay = Integer.parseInt(matcher.group(3));
-                
-                // 验证日期有效性
-                if (birthMonth < 1 || birthMonth > 12 || birthDay < 1 || birthDay > 31) {
-                    return null;
-                }
-                
-                // 转换为 YYYYMMDD 格式
-                return birthYear * 10000 + birthMonth * 100 + birthDay;
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        
-        // 3a. 尝试匹配年份范围且每段可带独立 BC：c.20BC - 50 或 20BC - 50AD 或 c.460 - 490BC
-        // 捕获组1: 开始 c.  2: 开始年份  3: 开始BC  4: 结束 c.  5: 结束年份  6: 结束BC
-        pattern = Pattern.compile("(c\\.)?\\s*(\\d+)\\s*(bc)?\\s*" + RANGE_SEP + "\\s*(c\\.)?\\s*(\\d+)\\s*(bc)?", Pattern.CASE_INSENSITIVE);
-        matcher = pattern.matcher(cleaned);
-        
-        if (matcher.find()) {
-            try {
-                boolean startHasC = matcher.group(1) != null;
-                int birthYear = Integer.parseInt(matcher.group(2));
-                String birthBC = matcher.group(3);
-                if (birthBC != null && !birthBC.isEmpty()) {
-                    birthYear = -birthYear;
-                }
-                int dateSuffix = startHasC ? 1 : 0;
-                return birthYear * 10000 + (birthYear < 0 ? -dateSuffix : dateSuffix);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        
-        // 3b. 兼容旧格式：范围末尾单一 BC（c.460 - 490BC），BC 表示两段均为公元前
-        pattern = Pattern.compile("(c\\.)?\\s*(\\d+)\\s*" + RANGE_SEP + "\\s*(c\\.)?\\s*(\\d+)\\s*(bc)?", Pattern.CASE_INSENSITIVE);
-        matcher = pattern.matcher(cleaned);
-        
-        if (matcher.find()) {
-            try {
-                boolean startHasC = matcher.group(1) != null;
-                int birthYear = Integer.parseInt(matcher.group(2));
-                String bcMarker = matcher.group(5);
-                if (bcMarker != null && !bcMarker.isEmpty()) {
-                    birthYear = -birthYear;
-                }
-                int dateSuffix = startHasC ? 1 : 0;
-                return birthYear * 10000 + (birthYear < 0 ? -dateSuffix : dateSuffix);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        
-        // 4. 尝试匹配单个年份格式（支持BC和c.前缀）：c.460BC 或 460BC 或 460
-        // 捕获组1: c. (可选)
-        // 捕获组2: 年份
-        // 捕获组3: BC标记 (可选)
-        pattern = Pattern.compile("(c\\.)?\\s*(\\d+)\\s*(bc)?", Pattern.CASE_INSENSITIVE);
-        matcher = pattern.matcher(cleaned);
-        
-        if (matcher.find()) {
-            try {
-                boolean hasC = matcher.group(1) != null;
-                int birthYear = Integer.parseInt(matcher.group(2));
-                String bcMarker = matcher.group(3);
-                
-                // 如果是BC（公元前），年份为负数
-                if (bcMarker != null && !bcMarker.isEmpty()) {
-                    birthYear = -birthYear;
-                }
-                
-                // 转换为 YYYYMMDD 格式
-                // 仅年份时：月日补 00（用于排序）
-                // 约年（c.）用 day=01 做标记，方便显示为 "c. YYYY"
-                int dateSuffix = hasC ? 1 : 0;
-                
-                return birthYear * 10000 + (birthYear < 0 ? -dateSuffix : dateSuffix);
-            } catch (NumberFormatException e) {
-                return null;
-            }
-        }
-        
-        return null;
+
+        String[] parts = RANGE_PATTERN.split(cleaned, 2);
+        return parseHistoricalDatePoint(parts[0]);
     }
     
     /**
@@ -197,6 +154,8 @@ public class DateUtils {
             year = -year;
         }
         
+        boolean isYearMonthFormat = !isNegative && month > 0 && day == 0;
+
         // 判断是否为年份格式
         // - 用户输入了月份和日期：month/day 为真实值（>=1），显示完整日期（包括 1.1）
         // - 用户只输入年份：存储为 YYYY0000（月日补 00 用于排序），显示年份
@@ -229,6 +188,8 @@ public class DateUtils {
                 sb.append(" BC");
             }
             birthDateStr = sb.toString();
+        } else if (isYearMonthFormat) {
+            birthDateStr = String.format("%d.%d", year, month);
         } else {
             // 完整日期格式：只要写了月份和日期就显示完整日期（包括 1.1）
             birthDateStr = String.format("%d.%d.%d", year, month, day);
@@ -249,6 +210,8 @@ public class DateUtils {
                     deathYearInt = -deathYearInt;
                 }
                 
+                boolean isDeathYearMonthFormat = !isNegativeDeath && deathMonth > 0 && deathDay == 0;
+
                 // 判断死亡日期是否为年份格式（使用与出生日期相同的逻辑）
                 boolean isDeathYearOnlyFormat = isNegativeDeath || (deathMonth == 0 && (deathDay == 0 || deathDay == 1));
                 boolean deathHasApproxMarker = (deathMonth == 0 && deathDay == 1);
@@ -265,6 +228,8 @@ public class DateUtils {
                         sb.append(" BC");
                     }
                     deathDateStr = sb.toString();
+                } else if (isDeathYearMonthFormat) {
+                    deathDateStr = String.format("%d.%d", deathYearInt, deathMonth);
                 } else {
                     // 完整日期格式：只要写了月份和日期就显示完整日期（包括 1.1）
                     deathDateStr = String.format("%d.%d.%d", deathYearInt, deathMonth, deathDay);
@@ -298,75 +263,25 @@ public class DateUtils {
      * @return 死亡日期的整数格式（YYYYMMDD），如果解析失败或没有死亡日期返回 null
      */
     public static Integer parseDeathYearFromRange(String dateRange) {
-        if (dateRange == null || dateRange.trim().isEmpty()) {
+        String cleaned = normalizeHistoricalDateText(dateRange);
+        if (cleaned == null) {
             return null;
         }
-        
-        // 移除所有空格并转换为小写以便匹配
-        String cleaned = dateRange.trim().replaceAll("\\s+", " ").toLowerCase();
-        
-        // 1. 先尝试匹配完整日期范围格式：Y.M.D - Y.M.D（同 parseBirthDateFromRange 的分隔符兼容）
-        Pattern pattern = Pattern.compile("^(\\d{1,4})" + DATE_SEP + "(\\d{1,2})" + DATE_SEP + "(\\d{1,2})\\s*" + RANGE_SEP + "\\s*(\\d{1,4})" + DATE_SEP + "(\\d{1,2})" + DATE_SEP + "(\\d{1,2})$");
-        Matcher matcher = pattern.matcher(cleaned);
-        
-        if (matcher.matches()) {
-            try {
-                int deathYear = Integer.parseInt(matcher.group(4));
-                int deathMonth = Integer.parseInt(matcher.group(5));
-                int deathDay = Integer.parseInt(matcher.group(6));
-                
-                // 验证日期有效性
-                if (deathMonth < 1 || deathMonth > 12 || deathDay < 1 || deathDay > 31) {
-                    return null;
-                }
-                
-                // 转换为 YYYYMMDD 格式
-                return deathYear * 10000 + deathMonth * 100 + deathDay;
-            } catch (NumberFormatException e) {
-                return null;
-            }
+
+        String[] parts = RANGE_PATTERN.split(cleaned, 2);
+        if (parts.length < 2) {
+            return null;
         }
-        
-        // 2a. 尝试匹配年份范围且每段可带独立 BC：c.20BC - 50 或 20BC - 50AD
-        // 捕获组1: 开始 c.  2: 开始年份  3: 开始BC  4: 结束 c.  5: 结束年份  6: 结束BC
-        pattern = Pattern.compile("(c\\.)?\\s*(\\d+)\\s*(bc)?\\s*" + RANGE_SEP + "\\s*(c\\.)?\\s*(\\d+)\\s*(bc)?", Pattern.CASE_INSENSITIVE);
-        matcher = pattern.matcher(cleaned);
-        
-        if (matcher.find()) {
-            try {
-                boolean endHasC = matcher.group(4) != null;
-                int deathYear = Integer.parseInt(matcher.group(5));
-                String deathBC = matcher.group(6);
-                if (deathBC != null && !deathBC.isEmpty()) {
-                    deathYear = -deathYear;
-                }
-                int dateSuffix = endHasC ? 1 : 0;
-                return deathYear * 10000 + (deathYear < 0 ? -dateSuffix : dateSuffix);
-            } catch (NumberFormatException e) {
-                return null;
-            }
+        Integer deathDate = parseHistoricalDatePoint(parts[1]);
+        if (deathDate != null) {
+            return deathDate;
         }
-        
-        // 2b. 兼容旧格式：范围末尾单一 BC（c.460 - 490BC），BC 表示两段均为公元前
-        pattern = Pattern.compile("(c\\.)?\\s*(\\d+)\\s*" + RANGE_SEP + "\\s*(c\\.)?\\s*(\\d+)\\s*(bc)?", Pattern.CASE_INSENSITIVE);
-        matcher = pattern.matcher(cleaned);
-        
-        if (matcher.find()) {
-            try {
-                boolean endHasC = matcher.group(3) != null;
-                int deathYear = Integer.parseInt(matcher.group(4));
-                String bcMarker = matcher.group(5);
-                if (bcMarker != null && !bcMarker.isEmpty()) {
-                    deathYear = -deathYear;
-                }
-                int dateSuffix = endHasC ? 1 : 0;
-                return deathYear * 10000 + (deathYear < 0 ? -dateSuffix : dateSuffix);
-            } catch (NumberFormatException e) {
-                return null;
-            }
+
+        Integer startDate = parseHistoricalDatePoint(parts[0]);
+        Integer endYearOnlyDate = parseHistoricalDatePoint(parts[1] + "BC");
+        if (startDate != null && startDate < 0 && endYearOnlyDate != null) {
+            return endYearOnlyDate;
         }
-        
-        // 如果没有匹配到日期范围格式，说明只有出生日期，返回 null
         return null;
     }
     
@@ -394,6 +309,10 @@ public class DateUtils {
             return null;
         }
         String normalized = rawText.trim().replaceAll("\\s+", " ");
+        normalized = normalized.replaceAll("\\s*([\\.．/／])\\s*", "$1");
+        normalized = normalized.replaceAll("\\s*[~～]\\s*", " - ");
+        normalized = normalized.replaceAll("(?<=\\S)\\s*[-–—－]\\s*(?=\\S)", " - ");
+        normalized = normalized.replaceAll("\\s+", " ").trim();
         return normalized.isEmpty() ? null : normalized;
     }
 

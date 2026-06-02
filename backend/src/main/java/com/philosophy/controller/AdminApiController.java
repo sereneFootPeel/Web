@@ -8,9 +8,8 @@ import com.philosophy.service.UserService;
 import com.philosophy.service.PhilosopherService;
 import com.philosophy.service.SchoolService;
 import com.philosophy.service.ContentService;
-import com.philosophy.service.DataExportService;
 import com.philosophy.service.DataImportService;
-import com.philosophy.service.EmailService;
+import com.philosophy.service.CsvExportEmailService;
 import com.philosophy.service.TranslationService;
 import com.philosophy.util.DateUtils;
 import com.philosophy.util.PinyinStringComparator;
@@ -23,9 +22,6 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,22 +37,20 @@ public class AdminApiController {
     private final SchoolService schoolService;
     private final ContentService contentService;
     private final DataImportService dataImportService;
-    private final DataExportService dataExportService;
-    private final EmailService emailService;
+    private final CsvExportEmailService csvExportEmailService;
     private final TranslationService translationService;
     private final PinyinStringComparator pinyinComparator = new PinyinStringComparator();
 
     public AdminApiController(UserService userService, PhilosopherService philosopherService,
                              SchoolService schoolService, ContentService contentService,
-                             DataImportService dataImportService, DataExportService dataExportService,
-                             EmailService emailService, TranslationService translationService) {
+                             DataImportService dataImportService, CsvExportEmailService csvExportEmailService,
+                             TranslationService translationService) {
         this.userService = userService;
         this.philosopherService = philosopherService;
         this.schoolService = schoolService;
         this.contentService = contentService;
         this.dataImportService = dataImportService;
-        this.dataExportService = dataExportService;
-        this.emailService = emailService;
+        this.csvExportEmailService = csvExportEmailService;
         this.translationService = translationService;
     }
 
@@ -689,25 +683,16 @@ public class AdminApiController {
     @GetMapping("/data-export/download")
     public ResponseEntity<byte[]> downloadCsv(Authentication auth) {
         requireAdmin(auth);
-        String csvData = dataExportService.exportAllDataToCsv();
-
-        byte[] bom = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
-        byte[] csvBytes = csvData.getBytes(StandardCharsets.UTF_8);
-        byte[] csvBytesWithBom = new byte[bom.length + csvBytes.length];
-        System.arraycopy(bom, 0, csvBytesWithBom, 0, bom.length);
-        System.arraycopy(csvBytes, 0, csvBytesWithBom, bom.length, csvBytes.length);
-
-        String timestamp = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
-        String filename = "philosophy_data_export_" + timestamp + ".csv";
+        CsvExportEmailService.CsvExportAttachment attachment = csvExportEmailService.createCsvAttachment();
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.parseMediaType("text/csv; charset=UTF-8"));
-        headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"");
+        headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + attachment.filename() + "\"");
         headers.setCacheControl("no-cache, no-store, must-revalidate");
 
         return ResponseEntity.ok()
             .headers(headers)
-            .body(csvBytesWithBom);
+            .body(attachment.bytes());
     }
 
     /**
@@ -721,19 +706,9 @@ public class AdminApiController {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", "管理员账号未绑定邮箱，无法发送"));
         }
         try {
-            String csvData = dataExportService.exportAllDataToCsv();
-            byte[] bom = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
-            byte[] csvBytes = csvData.getBytes(StandardCharsets.UTF_8);
-            byte[] csvBytesWithBom = new byte[bom.length + csvBytes.length];
-            System.arraycopy(bom, 0, csvBytesWithBom, 0, bom.length);
-            System.arraycopy(csvBytes, 0, csvBytesWithBom, bom.length, csvBytes.length);
-
-            String timestamp = new SimpleDateFormat("yyyyMMddHHmmss").format(new Date());
-            String filename = "philosophy_data_export_" + timestamp + ".csv";
-            String subject = "哲学网站数据导出 - " + timestamp;
             String htmlContent = "<p>您好，</p><p>这是您请求的哲学网站数据导出 CSV 文件，请查收附件。</p>";
 
-            emailService.sendReportWithAttachment(toEmail, subject, htmlContent, csvBytesWithBom, filename);
+            csvExportEmailService.sendCsvExportToEmail(toEmail, "哲学网站数据导出", htmlContent);
             return ResponseEntity.ok(Map.of("success", true, "message", "CSV 文件已发送至 " + toEmail));
         } catch (Exception e) {
             return ResponseEntity.internalServerError()
