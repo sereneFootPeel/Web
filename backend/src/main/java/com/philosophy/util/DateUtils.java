@@ -32,7 +32,7 @@ public class DateUtils {
         "^(c\\.)?\\s*([+-]?\\d+)\\s*(bc)?$",
         Pattern.CASE_INSENSITIVE
     );
-    private static final Pattern RANGE_PATTERN = Pattern.compile("\\s+-\\s+");
+    private static final Pattern RANGE_PATTERN = Pattern.compile("\\s*~\\s*");
 
     private static Integer encodeHistoricalDate(int year, int month, int day) {
         int absolute = Math.abs(year) * 10000 + month * 100 + day;
@@ -99,11 +99,11 @@ public class DateUtils {
      * 将日期范围字符串解析为出生日期的整数格式（YYYYMMDD）
      * 如果解析失败，返回 null
      * 支持多种格式：
-     * 1. "1914.11.18 - 1975.3.4" (完整日期范围，会解析为19141118)
+     * 1. "1914/11/18~1975/3/4" (完整日期范围，会解析为19141118)
      * 2. "1914.11.18" (仅出生日期，会解析为19141118)
-     * 3. "c.460 - 490BC" (年份范围，公元前，会解析为-4600101)
+     * 3. "c.460~490BC" (年份范围，公元前，会解析为-4600101)
      * 4. "c.460BC" (单个年份，公元前，会解析为-4600101)
-     * 5. "460 - 490BC" (年份范围，公元前，会解析为-4600101)
+     * 5. "460~490BC" (年份范围，公元前，会解析为-4600101)
      * 6. "460BC" (单个年份，公元前，会解析为-4600101)
      * 7. "460" (单个年份，公元，会解析为4600101)
      * 
@@ -129,9 +129,9 @@ public class DateUtils {
     /**
      * 将 birthYear（YYYYMMDD 格式）和 deathYear 转换为日期范围字符串
      * 支持多种格式：
-     * - 完整日期：YYYY.M.D - YYYY.M.D
-     * - 年份格式（公元前）：c. 460 - 490 BC（当月份和日期都是1时，或者月份为1日期为2表示"c."）
-     * - 年份格式（公元）：460 - 490（当月份和日期都是1时）
+     * - 完整日期：YYYY/M/D~YYYY/M/D
+     * - 年份格式（公元前）：c. 460~490 BC（当月份和日期都是1时，或者月份为1日期为2表示"c."）
+     * - 年份格式（公元）：460~490（当月份和日期都是1时）
      * 
      * @param birthYear 出生日期（YYYYMMDD 格式的整数，可为负数表示公元前）
      * @param deathYear 死亡年份（整数，可选，可为负数表示公元前）
@@ -189,10 +189,10 @@ public class DateUtils {
             }
             birthDateStr = sb.toString();
         } else if (isYearMonthFormat) {
-            birthDateStr = String.format("%d.%d", year, month);
+            birthDateStr = String.format("%d/%d", year, month);
         } else {
             // 完整日期格式：只要写了月份和日期就显示完整日期（包括 1.1）
-            birthDateStr = String.format("%d.%d.%d", year, month, day);
+            birthDateStr = String.format("%d/%d/%d", year, month, day);
         }
         
         // 如果有死亡年份，构建死亡日期部分
@@ -229,13 +229,13 @@ public class DateUtils {
                     }
                     deathDateStr = sb.toString();
                 } else if (isDeathYearMonthFormat) {
-                    deathDateStr = String.format("%d.%d", deathYearInt, deathMonth);
+                    deathDateStr = String.format("%d/%d", deathYearInt, deathMonth);
                 } else {
                     // 完整日期格式：只要写了月份和日期就显示完整日期（包括 1.1）
-                    deathDateStr = String.format("%d.%d.%d", deathYearInt, deathMonth, deathDay);
+                    deathDateStr = String.format("%d/%d/%d", deathYearInt, deathMonth, deathDay);
                 }
                 
-                return birthDateStr + " - " + deathDateStr;
+                return birthDateStr + "~" + deathDateStr;
             } else {
                 // 如果只是年份（绝对值 < 10000），使用年份格式（旧数据兼容）
                 String deathDateStr;
@@ -244,7 +244,7 @@ public class DateUtils {
                 } else {
                     deathDateStr = String.valueOf(deathYear);
                 }
-                return birthDateStr + " - " + deathDateStr;
+                return birthDateStr + "~" + deathDateStr;
             }
         }
         
@@ -255,9 +255,9 @@ public class DateUtils {
     /**
      * 从日期范围字符串中提取死亡日期
      * 支持多种格式：
-     * 1. "1914.11.18 - 1975.3.4" (完整日期范围，会解析为19750304)
-     * 2. "c. 460 - 490 BC" (年份范围，公元前，会解析为-4900101)
-     * 3. "460 - 490 BC" (年份范围，公元前，会解析为-4900101)
+     * 1. "1914/11/18~1975/3/4" (完整日期范围，会解析为19750304)
+     * 2. "c. 460~490 BC" (年份范围，公元前，会解析为-4900101)
+     * 3. "460~490 BC" (年份范围，公元前，会解析为-4900101)
      * 
      * @param dateRange 日期范围字符串，支持多种格式
      * @return 死亡日期的整数格式（YYYYMMDD），如果解析失败或没有死亡日期返回 null
@@ -309,9 +309,11 @@ public class DateUtils {
             return null;
         }
         String normalized = rawText.trim().replaceAll("\\s+", " ");
-        normalized = normalized.replaceAll("\\s*([\\.．/／])\\s*", "$1");
-        normalized = normalized.replaceAll("\\s*[~～]\\s*", " - ");
-        normalized = normalized.replaceAll("(?<=\\S)\\s*[-–—－]\\s*(?=\\S)", " - ");
+        normalized = normalized.replaceAll("[\\.．/／]", "/");
+        normalized = normalized.replaceAll("\\s*/\\s*", "/");
+        normalized = normalized.replaceAll("(?i)(^|\\s|~)c/", "$1c.");
+        normalized = normalized.replaceAll("\\s*[~～]\\s*", "~");
+        normalized = normalized.replaceAll("(?<=\\S)\\s*[-–—－]\\s*(?=\\S)", "~");
         normalized = normalized.replaceAll("\\s+", " ").trim();
         return normalized.isEmpty() ? null : normalized;
     }

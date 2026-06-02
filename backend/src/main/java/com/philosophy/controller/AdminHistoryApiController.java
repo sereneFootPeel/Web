@@ -22,7 +22,7 @@ import java.util.Map;
 @RequestMapping("/api/admin/history")
 public class AdminHistoryApiController {
 
-    private static final String HISTORY_DATE_ERROR_MESSAGE = "startYear 不能为空，支持 1999 / 1999/1 / 1999 - 2000 / 1999/1~2000/1 / 1999/1/1~2000/1/1 / 460BC";
+    private static final String HISTORY_DATE_ERROR_MESSAGE = "startYear 不能为空，支持 1999 / 1999/1 / 1999~2000 / 1999/1~2000/1 / 1999/1/1~2000/1/1 / 460BC";
 
     private final HistoryCountryRepository countryRepository;
     private final HistoryEventRepository eventRepository;

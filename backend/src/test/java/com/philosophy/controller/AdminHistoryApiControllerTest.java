@@ -53,15 +53,15 @@ class AdminHistoryApiControllerTest {
         assertNotNull(createdEvent);
         assertEquals(19990000, createdEvent.get("startYear"));
         assertEquals(19990000, createdEvent.get("sortDate"));
-        assertEquals("1999 - 2000", createdEvent.get("startDateText"));
-        assertEquals("1999 - 2000", createdEvent.get("startDateLabel"));
+        assertEquals("1999~2000", createdEvent.get("startDateText"));
+        assertEquals("1999~2000", createdEvent.get("startDateLabel"));
 
         HistoryEvent existing = new HistoryEvent();
         existing.setId(99L);
         existing.setCountry(country);
         existing.setSummaryZh("千年交替");
         existing.setStartYear(19990000);
-        existing.setStartDateText("1999 - 2000");
+        existing.setStartDateText("1999~2000");
         when(eventRepository.findById(99L)).thenReturn(Optional.of(existing));
 
         ResponseEntity<Map<String, Object>> updateResponse = controller.updateEvent(auth, 99L, Map.of(
@@ -112,8 +112,8 @@ class AdminHistoryApiControllerTest {
         assertNotNull(event);
         assertEquals(19990100, event.get("startYear"));
         assertEquals(19990100, event.get("sortDate"));
-        assertEquals("1999/1 - 2000/1", event.get("startDateText"));
-        assertEquals("1999/1 - 2000/1", event.get("startDateLabel"));
+        assertEquals("1999/1~2000/1", event.get("startDateText"));
+        assertEquals("1999/1~2000/1", event.get("startDateLabel"));
     }
 }
 

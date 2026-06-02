@@ -318,7 +318,7 @@ public class AdminApiController {
         }
         Integer birthDateInt = DateUtils.parseBirthDateFromRange(trimmed);
         if (birthDateInt == null) {
-            return "日期格式错误，请使用例如：1999.1.1 - 2000.1.1";
+            return "日期格式错误，请使用例如：1999/1/1~2000/1/1";
         }
         Integer deathDateInt = DateUtils.parseDeathYearFromRange(trimmed);
         philosopher.setBirthYear(birthDateInt);
