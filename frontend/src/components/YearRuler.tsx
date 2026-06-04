@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 /** 公元前：无公元 0 年，时间轴连续 */
 export const YEAR_BCE_START = -3000
@@ -96,15 +96,9 @@ export function YearRuler({ className = '', year, onYearChange, onYearSelect, sc
     [topBase],
   )
 
-  useLayoutEffect(() => {
-    scrollToYear(year, { smooth: false })
-    // 首帧直接定位，避免页面打开时的动画滚动
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   useEffect(() => {
     if (scrollSyncNonce <= 0) return
-    scrollToYear(year)
+    scrollToYear(year, { smooth: false })
   }, [scrollSyncNonce, year, scrollToYear])
 
   useEffect(() => {

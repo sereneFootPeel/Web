@@ -196,11 +196,11 @@ export function HistoryCardsPanel({
       const closestItem = findTopPinnedItem()
       if (!closestItem) return
 
-      scrollItemToTop(closestItem, {
-        smooth: options.smooth,
-        markUserScroll: true,
-        reportAfterScroll: options.reportAfterScroll,
-      })
+    scrollItemToTop(closestItem, {
+      smooth: options.smooth,
+      markUserScroll: true,
+      reportAfterScroll: options.reportAfterScroll,
+    })
     },
     [findTopPinnedItem, scrollItemToTop],
   )
@@ -273,15 +273,16 @@ export function HistoryCardsPanel({
     }
 
     const activeAnchorYear = normalizeToHistoryCenturyAnchor(activeYear)
+    const activeBucketEnd = activeAnchorYear === 1 ? 99 : activeAnchorYear + 99
 
     const timelineNodes = Array.from(listRef.current.querySelectorAll<HTMLElement>('.timeline-item'))
     const anchoredItem = timelineNodes.find((item) => {
-      const anchorYear = Number.parseInt(item.getAttribute('data-anchor-year') || '', 10)
-      return !Number.isNaN(anchorYear) && anchorYear === activeAnchorYear
+      const rawYear = Number.parseInt(item.getAttribute('data-raw-year') || '', 10)
+      return !Number.isNaN(rawYear) && rawYear >= activeAnchorYear && rawYear <= activeBucketEnd
     })
 
     if (anchoredItem) {
-      scrollItemToTop(anchoredItem, { smooth: true, markUserScroll: false, reportAfterScroll: false })
+      scrollItemToTop(anchoredItem, { smooth: false, markUserScroll: false, reportAfterScroll: false })
       return
     }
   }, [activeYear, scrollToYearNonce, loading, error, timelineItems, scrollItemToTop])
