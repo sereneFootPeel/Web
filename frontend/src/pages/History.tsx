@@ -143,20 +143,6 @@ export function History() {
       .catch(() => setRegionBounds(null))
   }, [selectedRegionId])
 
-  useEffect(() => {
-    if (!regionBounds || selectedRegionId == null) return
-    setYear((current) => {
-      const clamped = Math.min(regionBounds.max, Math.max(regionBounds.min, current))
-      if (clamped !== current) {
-        requestAnimationFrame(() => {
-          bumpScrollSync()
-          bumpCardsScrollSync()
-        })
-      }
-      return clamped
-    })
-  }, [regionBounds, selectedRegionId, bumpScrollSync, bumpCardsScrollSync])
-
   const resolveHistoryYear = useCallback(
     (y: number) => {
       let next = normalizeToHistoryCenturyAnchor(y)

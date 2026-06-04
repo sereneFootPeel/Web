@@ -119,12 +119,11 @@ export function HistoryCardsPanel({
     return items[items.length - 1] ?? null
   }, [])
 
-  const reportTopPinnedEventYear = useCallback(() => {
+  const reportTopPinnedTimelineYear = useCallback(() => {
     if (!onYearChange) return
 
     const topItem = findTopPinnedItem()
     if (!topItem) return
-    if (topItem.getAttribute('data-kind') !== 'event') return
 
     const rawYear = Number.parseInt(topItem.getAttribute('data-raw-year') || '', 10)
     const anchorYear = Number.parseInt(topItem.getAttribute('data-anchor-year') || '', 10)
@@ -149,10 +148,10 @@ export function HistoryCardsPanel({
       isProgrammaticScrollRef.current = false
       lastScrollTopRef.current = scrollerRef.current?.scrollTop ?? lastScrollTopRef.current
       if (reportAfterScroll) {
-        reportTopPinnedEventYear()
+        reportTopPinnedTimelineYear()
       }
     },
-    [reportTopPinnedEventYear],
+    [reportTopPinnedTimelineYear],
   )
 
   const scrollItemToTop = useCallback(
@@ -169,7 +168,7 @@ export function HistoryCardsPanel({
       if (Math.abs(scroller.scrollTop - targetTop) <= 1) {
         lastScrollTopRef.current = scroller.scrollTop
         if (options.reportAfterScroll) {
-          reportTopPinnedEventYear()
+          reportTopPinnedTimelineYear()
         }
         return
       }
@@ -189,7 +188,7 @@ export function HistoryCardsPanel({
         finishProgrammaticScroll(options.reportAfterScroll ?? false)
       }, 220)
     },
-    [finishProgrammaticScroll, reportTopPinnedEventYear],
+    [finishProgrammaticScroll, reportTopPinnedTimelineYear],
   )
 
   const snapToTopItem = useCallback(
@@ -258,8 +257,8 @@ export function HistoryCardsPanel({
   }, [timelineItems])
 
   useEffect(() => {
-    reportTopPinnedEventYear()
-  }, [timelineItems, reportTopPinnedEventYear])
+    reportTopPinnedTimelineYear()
+  }, [timelineItems, reportTopPinnedTimelineYear])
 
   useEffect(() => {
     if (
@@ -273,14 +272,10 @@ export function HistoryCardsPanel({
       return
     }
 
-    const eventItems = Array.from(
-      listRef.current.querySelectorAll<HTMLElement>('.timeline-item[data-kind="event"]'),
-    )
-    if (eventItems.length === 0) return
-
     const activeAnchorYear = normalizeToHistoryCenturyAnchor(activeYear)
 
-    const anchoredItem = eventItems.find((item) => {
+    const timelineNodes = Array.from(listRef.current.querySelectorAll<HTMLElement>('.timeline-item'))
+    const anchoredItem = timelineNodes.find((item) => {
       const anchorYear = Number.parseInt(item.getAttribute('data-anchor-year') || '', 10)
       return !Number.isNaN(anchorYear) && anchorYear === activeAnchorYear
     })
@@ -310,7 +305,7 @@ export function HistoryCardsPanel({
       hasUserScrolledRef.current = true
       lastScrollTopRef.current = scroller.scrollTop
     }
-    reportTopPinnedEventYear()
+    reportTopPinnedTimelineYear()
 
     if (snapTimerRef.current != null) {
       window.clearTimeout(snapTimerRef.current)
@@ -362,6 +357,8 @@ export function HistoryCardsPanel({
                     <li
                       key={item.key}
                       data-kind="philosophy"
+                      data-raw-year={timelineYear}
+                      data-anchor-year={normalizeToHistoryCenturyAnchor(timelineYear)}
                       className="timeline-item"
                       onClick={(event) => {
                         if (isInteractiveElement(event.target)) return

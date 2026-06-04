@@ -72,7 +72,7 @@ export function YearRuler({ className = '', year, onYearChange, onYearSelect, sc
   }, [ticks, topBase])
 
   const scrollToYear = useCallback(
-    (y: number) => {
+    (y: number, options: { smooth?: boolean } = {}) => {
       const el = scrollerRef.current
       if (!el) return
       const top = yearOffsetPx(y) + topBase
@@ -87,7 +87,7 @@ export function YearRuler({ className = '', year, onYearChange, onYearSelect, sc
         window.clearTimeout(programmaticScrollTimerRef.current)
       }
       isProgrammaticScrollRef.current = true
-      el.scrollTo({ top: target, behavior: 'smooth' })
+      el.scrollTo({ top: target, behavior: options.smooth === false ? 'auto' : 'smooth' })
       programmaticScrollTimerRef.current = window.setTimeout(() => {
         isProgrammaticScrollRef.current = false
         programmaticScrollTimerRef.current = null
@@ -97,8 +97,8 @@ export function YearRuler({ className = '', year, onYearChange, onYearSelect, sc
   )
 
   useLayoutEffect(() => {
-    scrollToYear(year)
-    // 仅首帧对齐到父级初始年份
+    scrollToYear(year, { smooth: false })
+    // 首帧直接定位，避免页面打开时的动画滚动
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
