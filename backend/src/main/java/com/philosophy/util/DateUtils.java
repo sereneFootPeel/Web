@@ -94,6 +94,104 @@ public class DateUtils {
 
         return null;
     }
+
+    private static boolean isAsciiDigits(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            if (!Character.isDigit(value.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Integer parseCompactNumber(String text) {
+        try {
+            return Integer.parseInt(text);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static String buildCompactHistoricalPoint(String yearText, String monthText, String dayText) {
+        Integer month = parseCompactNumber(monthText);
+        if (month == null || month < 1 || month > 12) {
+            return null;
+        }
+        if (dayText == null) {
+            return yearText + "/" + month;
+        }
+        Integer day = parseCompactNumber(dayText);
+        if (day == null || day < 1 || day > 31) {
+            return null;
+        }
+        return yearText + "/" + month + "/" + day;
+    }
+
+    private static String repairCompactHistoricalPoint(String pointText) {
+        if (!isAsciiDigits(pointText) || pointText.length() <= 4) {
+            return pointText;
+        }
+        int maxYearDigits = Math.min(4, pointText.length() - 2);
+        for (int yearDigits = maxYearDigits; yearDigits >= 1; yearDigits--) {
+            String yearText = pointText.substring(0, yearDigits);
+            String remainder = pointText.substring(yearDigits);
+            if (!remainder.startsWith("1")) {
+                continue;
+            }
+            String afterFirstSeparator = remainder.substring(1);
+            if (afterFirstSeparator.isEmpty()) {
+                continue;
+            }
+
+            if (afterFirstSeparator.length() >= 2) {
+                String monthOnly = buildCompactHistoricalPoint(yearText, afterFirstSeparator.substring(0, 2), null);
+                if (monthOnly != null && afterFirstSeparator.length() == 2) {
+                    return monthOnly;
+                }
+
+                String afterMonth = afterFirstSeparator.substring(2);
+                if (afterMonth.startsWith("1")) {
+                    String dayText = afterMonth.substring(1);
+                    String fullDate = buildCompactHistoricalPoint(yearText, afterFirstSeparator.substring(0, 2), dayText);
+                    if (fullDate != null) {
+                        return fullDate;
+                    }
+                }
+            }
+
+            String monthOnly = buildCompactHistoricalPoint(yearText, afterFirstSeparator.substring(0, 1), null);
+            if (monthOnly != null && afterFirstSeparator.length() == 1) {
+                return monthOnly;
+            }
+
+            String afterMonth = afterFirstSeparator.substring(1);
+            if (afterMonth.startsWith("1")) {
+                String dayText = afterMonth.substring(1);
+                String fullDate = buildCompactHistoricalPoint(yearText, afterFirstSeparator.substring(0, 1), dayText);
+                if (fullDate != null) {
+                    return fullDate;
+                }
+            }
+        }
+        return pointText;
+    }
+
+    private static String repairHistoricalPointText(String pointText, Integer referenceDate) {
+        if (pointText == null) {
+            return null;
+        }
+        String trimmed = pointText.trim();
+        if (trimmed.isEmpty() || trimmed.contains("/") || !isAsciiDigits(trimmed)) {
+            return trimmed;
+        }
+        if (referenceDate != null && Math.abs(referenceDate) >= 10000) {
+            return formatHistoricalDate(referenceDate);
+        }
+        return repairCompactHistoricalPoint(trimmed);
+    }
     
     /**
      * 将日期范围字符串解析为出生日期的整数格式（YYYYMMDD）
@@ -316,6 +414,31 @@ public class DateUtils {
         normalized = normalized.replaceAll("(?<=\\S)\\s*[-–—－]\\s*(?=\\S)", "~");
         normalized = normalized.replaceAll("\\s+", " ").trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    public static String repairHistoricalDateText(String rawText, Integer referenceDate) {
+        String normalized = normalizeHistoricalDateText(rawText);
+        if (normalized == null) {
+            return null;
+        }
+        String[] parts = RANGE_PATTERN.split(normalized, -1);
+        if (parts.length == 0) {
+            return normalized;
+        }
+        boolean changed = false;
+        String repairedStart = repairHistoricalPointText(parts[0], referenceDate);
+        if (repairedStart != null && !repairedStart.equals(parts[0])) {
+            parts[0] = repairedStart;
+            changed = true;
+        }
+        for (int i = 1; i < parts.length; i++) {
+            String repairedPart = repairHistoricalPointText(parts[i], null);
+            if (repairedPart != null && !repairedPart.equals(parts[i])) {
+                parts[i] = repairedPart;
+                changed = true;
+            }
+        }
+        return changed ? String.join("~", parts) : normalized;
     }
 
     public static Integer parseHistoricalDate(String dateStr) {

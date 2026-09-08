@@ -169,7 +169,8 @@ public class HistoryApiController {
 
     private Map<String, Object> toEventRow(HistoryEvent event, String lang) {
         Integer normalizedStartDate = DateUtils.convertYearToDateFormat(event.getStartYear());
-        String dateLabel = DateUtils.resolveHistoricalDateLabel(event.getStartDateText(), normalizedStartDate);
+        String repairedStartDateText = DateUtils.repairHistoricalDateText(event.getStartDateText(), normalizedStartDate);
+        String dateLabel = DateUtils.resolveHistoricalDateLabel(repairedStartDateText, normalizedStartDate);
         Map<String, Object> row = new HashMap<>();
         row.put("id", event.getId());
         row.put("summary", "en".equals(lang) && event.getSummaryEn() != null && !event.getSummaryEn().isBlank()
@@ -179,7 +180,7 @@ public class HistoryApiController {
         row.put("startYear", event.getStartYear());
         row.put("sortDate", normalizedStartDate);
         row.put("dateLabel", dateLabel);
-        row.put("startDateText", DateUtils.normalizeHistoricalDateText(event.getStartDateText()));
+        row.put("startDateText", repairedStartDateText);
         if (event.getCountry() != null) {
             row.put("regionId", event.getCountry().getId());
             row.put("regionNameZh", event.getCountry().getNameZh());

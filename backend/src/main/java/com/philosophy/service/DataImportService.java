@@ -4499,6 +4499,7 @@ public class DataImportService {
                             "开始日期无法解析，支持数值排序值或 1999 - 2000 / 1999.1.1 / 192BC 等格式", null);
                     continue;
                 }
+                rawStartText = DateUtils.repairHistoricalDateText(rawStartText, startYear);
 
                 final String tableName = "history_event";
                 final String context = "历史事件导入";

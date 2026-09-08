@@ -45,11 +45,13 @@ public class AdminAccountInitializer implements ApplicationRunner {
             admin.setAdminLoginAttempts(0);
             admin.setProfilePrivate(false);
             admin.setLikeCount(0);
+            // 设置初始密码为 000000
+            admin.setPassword(passwordEncoder.encode("000000"));
+            userRepository.save(admin);
+            logger.info("管理员账户已创建: admin");
+        } else {
+            // 如果管理员账户已存在，则不做修改
+            logger.info("管理员账户已存在，跳过创建和密码重置");
         }
-
-        // 更新密码为 000000
-        admin.setPassword(passwordEncoder.encode("000000"));
-        userRepository.save(admin);
-        logger.info("管理员密码已更新为: 000000");
     }
 }

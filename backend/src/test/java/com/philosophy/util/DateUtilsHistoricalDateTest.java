@@ -32,6 +32,14 @@ class DateUtilsHistoricalDateTest {
     }
 
     @Test
+    void repairHistoricalDateText_repairsSlashCorruptionAndFullWidthTilde() {
+        assertEquals("1066/10~1086", DateUtils.repairHistoricalDateText("1066110～1086", 10661000));
+        assertEquals("1778/2~1778/7", DateUtils.repairHistoricalDateText("177812~177817", 17780200));
+        assertEquals("1796/3~1797/10", DateUtils.repairHistoricalDateText("179613~1797110", 17960300));
+        assertEquals("1774/9/5~1774/10/26", DateUtils.repairHistoricalDateText("17741915~1774110126", 17740905));
+    }
+
+    @Test
     void parseDeathYearFromRange_supportsYearMonthAndSlashSeparatedRanges() {
         assertEquals(20000101, DateUtils.parseDeathYearFromRange("1999 /1/1~2000/1/1"));
         assertEquals(20000100, DateUtils.parseDeathYearFromRange("1999/1~2000/1"));

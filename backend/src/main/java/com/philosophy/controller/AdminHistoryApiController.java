@@ -148,7 +148,7 @@ public class AdminHistoryApiController {
 
     private Map<String, Object> eventMap(HistoryEvent e) {
         Map<String, Object> m = new HashMap<>();
-        String startDateText = DateUtils.normalizeHistoricalDateText(e.getStartDateText());
+        String startDateText = DateUtils.repairHistoricalDateText(e.getStartDateText(), e.getStartYear());
         m.put("id", e.getId());
         m.put("countryId", e.getCountry() == null ? null : e.getCountry().getId());
         m.put("regionId", e.getCountry() == null ? null : e.getCountry().getId());
