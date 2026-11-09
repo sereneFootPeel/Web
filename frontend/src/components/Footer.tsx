@@ -21,7 +21,6 @@ export function Footer() {
       <footer
         className="footer-component py-8"
         style={{
-          backgroundColor: 'var(--color-primary)',
           color: 'var(--text-primary)',
         }}
       >

@@ -43,9 +43,6 @@ public class Content {
     @Column(name = "locked_until")
     private LocalDateTime lockedUntil;
 
-    @Column(name = "history_pinned", nullable = false, columnDefinition = "BOOLEAN DEFAULT FALSE")
-    private boolean historyPinned = false;
-
     @Size(max = 50000, message = "内容长度不能超过50000个字符")
     @Column(columnDefinition = "MEDIUMTEXT", name = "content")
     private String content;
@@ -273,14 +270,6 @@ public class Content {
 
     public void setLockedUntil(LocalDateTime lockedUntil) {
         this.lockedUntil = lockedUntil;
-    }
-
-    public boolean isHistoryPinned() {
-        return historyPinned;
-    }
-
-    public void setHistoryPinned(boolean historyPinned) {
-        this.historyPinned = historyPinned;
     }
 
     @Override

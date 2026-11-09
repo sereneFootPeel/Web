@@ -54,26 +54,6 @@ type AdminContent = {
   schoolName?: string | null
 }
 
-type AdminHistoryCountry = {
-  id: number
-  countryCode: string
-  code?: string
-  nameZh?: string | null
-  nameEn?: string | null
-}
-
-type AdminHistoryEvent = {
-  id: number
-  countryId?: number | null
-  regionId?: number | null
-  summaryZh: string
-  summaryEn?: string | null
-  startYear: number
-  sortDate?: number | null
-  startDateText?: string | null
-  startDateLabel?: string | null
-}
-
 type ImportStats = {
   success: number
   failed: number
@@ -88,9 +68,9 @@ type CsvImportResult = {
   failureDetails?: Record<string, string[]>
 }
 
-type Section = 'dashboard' | 'users' | 'philosophers' | 'schools' | 'contents' | 'history' | 'import'
+type Section = 'dashboard' | 'users' | 'philosophers' | 'schools' | 'contents' | 'import'
 
-const sections: Section[] = ['dashboard', 'users', 'philosophers', 'schools', 'contents', 'history', 'import']
+const sections: Section[] = ['dashboard', 'users', 'philosophers', 'schools', 'contents', 'import']
 
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetchWithCredentials(url, {
@@ -162,67 +142,6 @@ function compareAdminContents(left: AdminContent, right: AdminContent) {
   return left.id - right.id
 }
 
-function getHistoryCountryLabel(country: AdminHistoryCountry) {
-  return country.nameZh || country.nameEn || country.countryCode
-}
-
-function compareAdminHistoryCountries(left: AdminHistoryCountry, right: AdminHistoryCountry) {
-  const byName = comparePinyinText(getHistoryCountryLabel(left), getHistoryCountryLabel(right))
-  if (byName !== 0) return byName
-  return left.id - right.id
-}
-
-function getHistoryEventCountryId(event: AdminHistoryEvent) {
-  return event.countryId ?? event.regionId ?? null
-}
-
-function matchesHistoryFilter(event: AdminHistoryEvent, countryFilterId: string) {
-  if (!countryFilterId) return true
-  return String(getHistoryEventCountryId(event) ?? '') === countryFilterId
-}
-
-function getHistoryEventSortDate(event: AdminHistoryEvent) {
-  return event.sortDate ?? event.startYear
-}
-
-function formatHistoryEventInputFallback(value?: number | null) {
-  if (value == null || Number.isNaN(value)) return ''
-
-  const isBc = value < 0
-  const absolute = Math.abs(value)
-  if (absolute < 10000) {
-    return isBc ? `${absolute} BC` : String(value)
-  }
-
-  const year = Math.trunc(absolute / 10000)
-  const month = Math.trunc((absolute % 10000) / 100)
-  const day = absolute % 100
-
-  if (month === 0 && day === 1) {
-    return isBc ? `${year} BC` : `c. ${year}`
-  }
-  if (month === 0 && day === 0) {
-    return isBc ? `${year} BC` : String(year)
-  }
-
-  const prefix = isBc ? '-' : ''
-  return `${prefix}${year}.${month}.${day}`
-}
-
-function pickReadableHistoryInputText(...values: Array<string | null | undefined>) {
-  for (const value of values) {
-    const normalized = value?.trim()
-    if (!normalized) continue
-    if (/^-?\d{5,}$/.test(normalized)) continue
-    return normalized
-  }
-  return null
-}
-
-function getHistoryEventInputValue(event: AdminHistoryEvent) {
-  return pickReadableHistoryInputText(event.startDateText, event.startDateLabel) || formatHistoryEventInputFallback(event.startYear)
-}
-
 export function AdminManage() {
   const params = useParams<{ section: string }>()
   const section = useMemo<Section>(() => {
@@ -239,21 +158,17 @@ export function AdminManage() {
   const [philosophers, setPhilosophers] = useState<AdminPhilosopher[]>([])
   const [schools, setSchools] = useState<AdminSchool[]>([])
   const [contents, setContents] = useState<AdminContent[]>([])
-  const [historyCountries, setHistoryCountries] = useState<AdminHistoryCountry[]>([])
-  const [historyEvents, setHistoryEvents] = useState<AdminHistoryEvent[]>([])
 
   const [userForm, setUserForm] = useState({ id: 0, username: '', email: '', role: 'USER', enabled: true, password: '' })
   const [philosopherForm, setPhilosopherForm] = useState({
     id: 0, name: '', nameEn: '', birthDeathDate: '', bio: '', bioEn: '', imageUrl: '', imageVersion: '', hasImage: false,
   })
-  const [schoolForm, setSchoolForm] = useState({ id: 0, name: '', nameEn: '', description: '', descriptionEn: '', parentId: '' })
+  const [schoolForm, setSchoolForm] = useState({
+    id: 0, name: '', nameEn: '', description: '', descriptionEn: '', parentId: '',
+  })
   const [contentForm, setContentForm] = useState({
     id: 0, content: '', contentEn: '', philosopherId: '', schoolId: '',
   })
-  const [historyEventForm, setHistoryEventForm] = useState({
-    id: 0, countryId: '', startYear: '', summaryZh: '', summaryEn: '',
-  })
-  const [historyCountryFilterId, setHistoryCountryFilterId] = useState('')
   const [csvFile, setCsvFile] = useState<File | null>(null)
   const [clearExistingData, setClearExistingData] = useState(false)
   const [lastImportResult, setLastImportResult] = useState<CsvImportResult | null>(null)
@@ -287,14 +202,6 @@ export function AdminManage() {
         setContents(c.contents || [])
         setPhilosophers(p.philosophers || [])
         setSchools(s.schools || [])
-      } else if (section === 'history') {
-        const eventQuery = historyCountryFilterId ? `?countryId=${historyCountryFilterId}` : ''
-        const [countriesRes, eventsRes] = await Promise.all([
-          requestJson<{ countries: AdminHistoryCountry[] }>('/api/admin/history/countries'),
-          requestJson<{ events: AdminHistoryEvent[] }>(`/api/admin/history/events${eventQuery}`),
-        ])
-        setHistoryCountries(countriesRes.countries || [])
-        setHistoryEvents(eventsRes.events || [])
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败')
@@ -305,7 +212,7 @@ export function AdminManage() {
 
   useEffect(() => {
     void loadCurrent()
-  }, [section, historyCountryFilterId])
+  }, [section])
 
   useEffect(() => {
     if (!philosopherImageFile) {
@@ -332,13 +239,6 @@ export function AdminManage() {
     setSchoolForm({ id: 0, name: '', nameEn: '', description: '', descriptionEn: '', parentId: '' })
     setContentForm({ id: 0, content: '', contentEn: '', philosopherId: '', schoolId: '' })
     resetPhilosopherImageState()
-    setHistoryEventForm((current) => ({
-      id: 0,
-      countryId: historyCountryFilterId || current.countryId || '',
-      startYear: '',
-      summaryZh: '',
-      summaryEn: '',
-    }))
   }
 
   function showSuccess(msg: string) {
@@ -534,50 +434,6 @@ export function AdminManage() {
     }
   }
 
-  async function submitHistoryEvent(e: FormEvent) {
-    e.preventDefault()
-    const payload = {
-      countryId: historyEventForm.countryId ? Number(historyEventForm.countryId) : null,
-      startYear: historyEventForm.startYear.trim(),
-      summaryZh: historyEventForm.summaryZh,
-      summaryEn: historyEventForm.summaryEn || null,
-    }
-    try {
-      let savedEvent: AdminHistoryEvent | null = null
-      if (historyEventForm.id) {
-        const res = await requestJson<{ success: boolean; event: AdminHistoryEvent }>('/api/admin/history/events/' + historyEventForm.id, { method: 'PUT', body: JSON.stringify(payload) })
-        savedEvent = res.event
-        showSuccess('历史事件已更新')
-      } else {
-        const res = await requestJson<{ success: boolean; event: AdminHistoryEvent }>('/api/admin/history/events', { method: 'POST', body: JSON.stringify(payload) })
-        savedEvent = res.event
-        showSuccess('历史事件已创建')
-      }
-      if (savedEvent) {
-        setHistoryEvents((prev) => (
-          matchesHistoryFilter(savedEvent, historyCountryFilterId)
-            ? upsertById(prev, savedEvent)
-            : removeById(prev, savedEvent.id)
-        ))
-      }
-      resetForms()
-    } catch (e) {
-      showError(e instanceof Error ? e.message : '保存历史事件失败')
-    }
-  }
-
-  async function removeHistoryEvent(id: number) {
-    if (!confirm('确定删除该历史事件？')) return
-    try {
-      await requestJson('/api/admin/history/events/' + id, { method: 'DELETE' })
-      setHistoryEvents((prev) => removeById(prev, id))
-      showSuccess('历史事件已删除')
-      resetForms()
-    } catch (e) {
-      showError(e instanceof Error ? e.message : '删除历史事件失败')
-    }
-  }
-
   async function uploadCsv(e: FormEvent) {
     e.preventDefault()
     if (!csvFile) {
@@ -674,7 +530,6 @@ export function AdminManage() {
     { key: 'philosophers', label: '哲学家管理' },
     { key: 'schools', label: '流派管理' },
     { key: 'contents', label: '内容管理' },
-    { key: 'history', label: '历史管理' },
     { key: 'import', label: 'CSV导入' },
   ]
 
@@ -683,28 +538,6 @@ export function AdminManage() {
   const sortedPhilosophers = useMemo(() => sortList(philosophers, compareAdminPhilosophers), [philosophers])
   const sortedSchools = useMemo(() => sortList(schools, compareAdminSchools), [schools])
   const sortedContents = useMemo(() => sortList(contents, compareAdminContents), [contents])
-  const sortedHistoryCountries = useMemo(() => sortList(historyCountries, compareAdminHistoryCountries), [historyCountries])
-  const historyCountryById = useMemo(() => new Map(historyCountries.map((country) => [country.id, country])), [historyCountries])
-  const historyCountryNameById = useMemo(
-    () => new Map(historyCountries.map((country) => [country.id, getHistoryCountryLabel(country)])),
-    [historyCountries],
-  )
-  const sortedHistoryEvents = useMemo(
-    () =>
-      sortList(historyEvents, (left, right) => {
-        const byCountry = comparePinyinText(
-          historyCountryNameById.get(getHistoryEventCountryId(left) ?? -1),
-          historyCountryNameById.get(getHistoryEventCountryId(right) ?? -1),
-        )
-        if (byCountry !== 0) return byCountry
-        const leftSortDate = getHistoryEventSortDate(left)
-        const rightSortDate = getHistoryEventSortDate(right)
-        if (leftSortDate !== rightSortDate) return leftSortDate - rightSortDate
-        return left.id - right.id
-      }),
-    [historyEvents, historyCountryNameById],
-  )
-
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>管理后台</h1>
@@ -949,7 +782,9 @@ export function AdminManage() {
               <div key={c.id} className="p-3 rounded border border-gray-200 flex items-center justify-between gap-2">
                 <div>
                   <div className="font-medium">{`内容#${c.id}`}</div>
-                  <div className="text-sm text-gray-500">{c.philosopherName || '无哲学家'} · {c.schoolName || '无流派'}</div>
+                  <div className="text-sm text-gray-500">
+                    {c.philosopherName || '无哲学家'} · {c.schoolName || '无流派'}
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <button className="text-black" onClick={() => setContentForm({
@@ -963,69 +798,6 @@ export function AdminManage() {
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {!loading && section === 'history' && (
-        <div className="space-y-8">
-          <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-            <form className="space-y-3 sticky top-4" onSubmit={submitHistoryEvent}>
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h2 className="font-semibold">{historyEventForm.id ? '编辑历史事件' : '新增历史事件'}</h2>
-                <div className="flex items-center gap-2 text-sm">
-                  <span>筛选国家</span>
-                  <select className="border rounded p-2" value={historyCountryFilterId} onChange={(e) => setHistoryCountryFilterId(e.target.value)}>
-                    <option value="">全部</option>
-                    {sortedHistoryCountries.map((country) => (
-                      <option key={country.id} value={country.id}>{country.nameZh || country.nameEn || country.countryCode}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <select className="w-full border rounded p-2" value={historyEventForm.countryId} onChange={(e) => setHistoryEventForm((v) => ({ ...v, countryId: e.target.value }))} required>
-                <option value="">选择国家</option>
-                {sortedHistoryCountries.map((country) => (
-                  <option key={country.id} value={country.id}>{country.nameZh || country.nameEn || country.countryCode}</option>
-                ))}
-              </select>
-              <input className="w-full border rounded p-2" placeholder="开始日期，如 1999 - 2000 / 1999.1.1 - 2000.1.1 / 192BC" value={historyEventForm.startYear} onChange={(e) => setHistoryEventForm((v) => ({ ...v, startYear: e.target.value }))} required />
-              <textarea className="w-full border rounded p-2 min-h-32" placeholder="中文摘要" value={historyEventForm.summaryZh} onChange={(e) => setHistoryEventForm((v) => ({ ...v, summaryZh: e.target.value }))} required />
-              <textarea className="w-full border rounded p-2 min-h-24" placeholder="英文摘要（可空）" value={historyEventForm.summaryEn} onChange={(e) => setHistoryEventForm((v) => ({ ...v, summaryEn: e.target.value }))} />
-              <div className="flex gap-2">
-                <button className="px-4 py-2 rounded bg-black text-white" type="submit">保存事件</button>
-                <button className="px-4 py-2 rounded border" type="button" onClick={resetForms}>重置</button>
-              </div>
-              <p className="text-xs text-gray-500 -mt-2">支持 1999、1999.1.1、1999 - 2000、1999.1.1 - 2000.1.1、192BC 等格式；列表仍按起始日期排序。</p>
-              <p className="text-xs text-gray-500">
-                国家列表来自现有历史国家数据，这里只允许编辑历史事件，不再新增或修改国家/地区。
-              </p>
-            </form>
-            <div className="space-y-2">
-              {sortedHistoryEvents.map((event) => {
-                const country = historyCountryById.get(event.countryId ?? event.regionId ?? 0)
-                return (
-                  <div key={event.id} className="p-3 rounded border border-gray-200 flex items-center justify-between gap-2">
-                    <div>
-                      <div className="font-medium">{country?.nameZh || country?.nameEn || country?.countryCode || `国家#${event.countryId ?? event.regionId ?? ''}`}</div>
-                      <div className="text-sm text-gray-500">{event.startDateLabel || event.startDateText || event.startYear}</div>
-                      <div className="text-sm line-clamp-3">{event.summaryZh}</div>
-                    </div>
-                    <div className="flex gap-2 shrink-0">
-                      <button className="text-black" onClick={() => setHistoryEventForm({
-                        id: event.id,
-                        countryId: String(event.countryId ?? event.regionId ?? ''),
-                        startYear: getHistoryEventInputValue(event),
-                        summaryZh: event.summaryZh || '',
-                        summaryEn: event.summaryEn || '',
-                      })}>编辑</button>
-                      <button className="text-red-600" onClick={() => void removeHistoryEvent(event.id)}>删除</button>
-                    </div>
-                  </div>
-                )
-              })}
-              {!sortedHistoryEvents.length && <div className="text-sm text-gray-500">当前筛选条件下暂无历史事件</div>}
-            </div>
           </div>
         </div>
       )}

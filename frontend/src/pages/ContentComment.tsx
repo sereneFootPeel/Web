@@ -143,6 +143,8 @@ export function ContentComment() {
     }
   }
 
+  const canDeleteComment = (commentUserId?: number) => !!user && (user.role === 'ADMIN' || user.id === commentUserId)
+
   const handleDeleteComment = async (commentId: number, e: MouseEvent<HTMLButtonElement>) => {
     e.preventDefault()
     e.stopPropagation()
@@ -177,7 +179,7 @@ export function ContentComment() {
     return (
       <div
         className="max-w-2xl mx-auto py-8 min-h-[50vh] flex items-center justify-center"
-        style={{ background: '#ffffff', color: '#111827' }}
+        style={{ background: 'transparent', color: '#111827' }}
       >
         <span style={{ color: '#6b7280' }}>{t('加载中...', 'Loading...')}</span>
       </div>
@@ -188,7 +190,7 @@ export function ContentComment() {
     return (
       <div
         className="max-w-2xl mx-auto py-8"
-        style={{ background: '#ffffff', color: '#111827' }}
+        style={{ background: 'transparent', color: '#111827' }}
       >
         <p style={{ color: '#374151' }}>{error || t('内容不存在', 'Content not found')}</p>
         <Link
@@ -205,7 +207,7 @@ export function ContentComment() {
   return (
     <div
       className="max-w-2xl mx-auto py-6"
-      style={{ background: '#ffffff', color: '#111827' }}
+      style={{ background: 'transparent', color: '#111827' }}
     >
       <button
         type="button"
@@ -219,7 +221,7 @@ export function ContentComment() {
 
       <article
         className="rounded-lg border p-5 mb-8 relative"
-        style={{ borderColor: '#e5e7eb', background: '#ffffff' }}
+        style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-primary)' }}
       >
         <div className="flex items-start">
           <div className={`flex-1 min-w-0 w-full ${authenticated ? 'pr-14' : ''}`}>
@@ -311,8 +313,8 @@ export function ContentComment() {
               maxLength={5000}
               className="w-full px-4 py-3 rounded-lg border resize-none text-[15px] outline-none focus:ring-2 focus:ring-[#111827] focus:ring-opacity-30"
               style={{
-                borderColor: '#d1d5db',
-                background: '#ffffff',
+                borderColor: 'var(--border-primary)',
+                background: 'var(--bg-primary)',
                 color: '#111827',
               }}
             />
@@ -348,10 +350,10 @@ export function ContentComment() {
                 comment={c}
                 fallbackAuthor={t('匿名', 'Anonymous')}
                 dateText={formatDate(c.createdAt)}
-                canDelete={!!user && user.id === c.user?.id}
+                canDelete={canDeleteComment(c.user?.id)}
                 deleteTitle={t('删除', 'Delete')}
                 onDelete={handleDeleteComment}
-                style={{ borderColor: '#e5e7eb', background: '#f9fafb', border: '1px solid #e5e7eb' }}
+                style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}
                 subtitle={
                   c.replies && c.replies.length > 0 ? (
                     <div className="mt-3 pl-4 space-y-2 border-l-2" style={{ borderColor: '#e5e7eb' }}>
@@ -361,7 +363,7 @@ export function ContentComment() {
                           comment={r}
                           fallbackAuthor={t('匿名', 'Anonymous')}
                           dateText={formatDate(r.createdAt)}
-                          canDelete={!!user && user.id === r.user?.id}
+                          canDelete={canDeleteComment(r.user?.id)}
                           deleteTitle={t('删除', 'Delete')}
                           onDelete={handleDeleteComment}
                           compact={true}

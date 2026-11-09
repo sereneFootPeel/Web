@@ -17,8 +17,7 @@ export function Header() {
   return (
     <header
       id="navbar"
-      className="fixed top-0 left-0 right-0 z-50 w-full bg-primary shadow-sm overflow-hidden"
-      style={{ backgroundColor: 'var(--color-primary)' }}
+      className="fixed top-0 left-0 right-0 z-50 w-full shadow-sm overflow-hidden"
     >
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
@@ -94,7 +93,6 @@ export function Header() {
         <div
           id="mobile-menu"
           className="md:hidden relative z-10"
-          style={{ backgroundColor: 'var(--color-primary)' }}
         >
           <div className="container mx-auto px-4 py-4 flex flex-col space-y-2">
             {navItems.map(({ path, labelZh, labelEn, icon }) => (

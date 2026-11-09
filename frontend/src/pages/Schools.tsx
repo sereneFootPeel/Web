@@ -284,37 +284,29 @@ export function Schools() {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
       <aside className="md:col-span-1 self-start">
-        <div
-          className="rounded-lg border p-4"
-          style={{
-            borderColor: 'var(--border-primary)',
-            background: 'var(--bg-primary)',
-          }}
-        >
-          {loading ? (
-            <p className="text-sm">{t('加载中...', 'Loading...')}</p>
-          ) : (
-            <div>
-              {tree.map((n) => (
-                <TreeNode
-                  key={n.id}
-                  node={n}
-                  sortedNodes={sortedNodes}
-                  selectedId={selectedId}
-                  expandedIds={expandedIds}
-                  onToggle={toggleNode}
-                  onSelect={selectNode}
-                  t={t}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        {loading ? (
+          <p className="text-sm">{t('加载中...', 'Loading...')}</p>
+        ) : (
+          <div>
+            {tree.map((n) => (
+              <TreeNode
+                key={n.id}
+                node={n}
+                sortedNodes={sortedNodes}
+                selectedId={selectedId}
+                expandedIds={expandedIds}
+                onToggle={toggleNode}
+                onSelect={selectNode}
+                t={t}
+              />
+            ))}
+          </div>
+        )}
       </aside>
 
       <section className="md:col-span-2 min-w-0">
         {selectedId && !loadingDetail && detail ? (
-          <div className="rounded-lg border p-5 mb-6" style={{ borderColor: 'var(--border-primary)', background: 'var(--bg-primary)' }}>
+          <div className="mb-6">
             <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>
               {detail.displayName}
             </h1>

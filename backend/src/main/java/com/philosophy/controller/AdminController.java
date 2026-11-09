@@ -536,16 +536,6 @@ public class AdminController {
         }
     }
 
-    @PostMapping("/contents/toggle-history-pin/{id}")
-    public String toggleContentHistoryPin(@PathVariable Long id) {
-        Content content = contentService.getContentById(id);
-        if (content != null) {
-            content.setHistoryPinned(!content.isHistoryPinned());
-            contentService.saveContent(content);
-        }
-        return "redirect:/admin/contents";
-    }
-
     @PostMapping("/contents/delete/{id}")
     public String deleteContent(@PathVariable Long id, org.springframework.security.core.Authentication authentication) {
         Content content = contentService.getContentById(id);

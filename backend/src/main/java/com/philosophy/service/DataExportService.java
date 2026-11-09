@@ -29,8 +29,6 @@ public class DataExportService {
     private final SchoolTranslationRepository schoolTranslationRepository;
     private final ContentTranslationRepository contentTranslationRepository;
     private final PhilosopherTranslationRepository philosopherTranslationRepository;
-    private final HistoryCountryRepository historyCountryRepository;
-    private final HistoryEventRepository historyEventRepository;
 
     public DataExportService(UserRepository userRepository,
                              SchoolRepository schoolRepository,
@@ -43,9 +41,7 @@ public class DataExportService {
                              UserFollowRepository userFollowRepository,
                              SchoolTranslationRepository schoolTranslationRepository,
                              ContentTranslationRepository contentTranslationRepository,
-                             PhilosopherTranslationRepository philosopherTranslationRepository,
-                             HistoryCountryRepository historyCountryRepository,
-                             HistoryEventRepository historyEventRepository) {
+                             PhilosopherTranslationRepository philosopherTranslationRepository) {
         this.userRepository = userRepository;
         this.schoolRepository = schoolRepository;
         this.philosopherRepository = philosopherRepository;
@@ -58,8 +54,6 @@ public class DataExportService {
         this.schoolTranslationRepository = schoolTranslationRepository;
         this.contentTranslationRepository = contentTranslationRepository;
         this.philosopherTranslationRepository = philosopherTranslationRepository;
-        this.historyCountryRepository = historyCountryRepository;
-        this.historyEventRepository = historyEventRepository;
     }
 
     public String exportAllDataToCsv() {
@@ -104,10 +98,10 @@ public class DataExportService {
 
             // 导出学派数据
             pw.println("学派数据");
-            pw.println("ID,名称,英文名称,描述,英文描述,父学派ID,创建者ID,点赞数,历史显示,创建时间,更新时间");
+            pw.println("ID,名称,英文名称,描述,英文描述,父学派ID,创建者ID,点赞数,创建时间,更新时间");
             List<School> schools = schoolRepository.findAll();
             for (School school : schools) {
-                pw.printf("%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s%n",
+                pw.printf("%d,%s,%s,%s,%s,%s,%s,%d,%s,%s%n",
                     school.getId(),
                     escapeCsv(school.getName()),
                     escapeCsv(school.getNameEn()),
@@ -116,7 +110,6 @@ public class DataExportService {
                     school.getParent() != null ? school.getParent().getId().toString() : "",
                     school.getUser() != null ? school.getUser().getId().toString() : "",
                     school.getLikeCount(),
-                    school.isHistoryEnabled() ? "1" : "0",
                     school.getCreatedAt() != null ? school.getCreatedAt().format(formatter) : "未知时间",
                     school.getUpdatedAt() != null ? school.getUpdatedAt().format(formatter) : "未知时间"
                 );
@@ -165,10 +158,10 @@ public class DataExportService {
 
             // 导出内容数据
             pw.println("内容数据");
-            pw.println("ID,内容,内容英文,哲学家ID,学派ID,作者ID,标题,排序索引,锁定用户ID,锁定时间,锁定至,历史置顶,点赞数,是否私有,隐私设置者ID,隐私设置时间,状态,是否屏蔽,屏蔽者ID,屏蔽时间,版本,创建时间,更新时间");
+            pw.println("ID,内容,内容英文,哲学家ID,学派ID,作者ID,标题,排序索引,锁定用户ID,锁定时间,锁定至,点赞数,是否私有,隐私设置者ID,隐私设置时间,状态,是否屏蔽,屏蔽者ID,屏蔽时间,版本,创建时间,更新时间");
             List<Content> contents = contentRepository.findAll();
             for (Content content : contents) {
-                pw.printf("%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%s,%d,%s,%s,%s,%d,%s,%s,%s,%s,%s,%s%n",
+                pw.printf("%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%d,%s,%s,%s,%d,%s,%s,%s,%s,%s,%s%n",
                     content.getId(),
                     escapeCsv(content.getContent()),
                     escapeCsv(content.getContentEn()),
@@ -180,7 +173,6 @@ public class DataExportService {
                     content.getLockedByUser() != null ? content.getLockedByUser().getId().toString() : "",
                     content.getLockedAt() != null ? content.getLockedAt().format(formatter) : "",
                     content.getLockedUntil() != null ? content.getLockedUntil().format(formatter) : "",
-                    content.isHistoryPinned() ? "1" : "0",
                     content.getLikeCount(),
                     content.isPrivate() ? "1" : "0",
                     content.getPrivacySetBy() != null ? content.getPrivacySetBy().getId().toString() : "",
@@ -269,41 +261,6 @@ public class DataExportService {
                     follow.getFollower().getId(),
                     follow.getFollowing().getId(),
                     follow.getCreatedAt() != null ? follow.getCreatedAt().format(formatter) : "未知时间"
-                );
-            }
-            pw.println();
-
-            // 导出历史国家数据
-            pw.println("历史国家数据");
-            pw.println("ID,国家代码,中文名称,英文名称,地图槽位,标记经度,标记纬度,创建时间,更新时间");
-            List<HistoryCountry> historyCountries = historyCountryRepository.findAllByOrderByMapSlotAscIdAsc();
-            for (HistoryCountry country : historyCountries) {
-                pw.printf("%d,%s,%s,%s,%s,%s,%s,%s,%s%n",
-                    country.getId(),
-                    escapeCsv(country.getCountryCode()),
-                    escapeCsv(country.getNameZh()),
-                    escapeCsv(country.getNameEn()),
-                    country.getMapSlot() != null ? country.getMapSlot().name() : "",
-                    country.getMarkerLon() != null ? country.getMarkerLon().toString() : "",
-                    country.getMarkerLat() != null ? country.getMarkerLat().toString() : "",
-                    country.getCreatedAt() != null ? country.getCreatedAt().format(formatter) : "未知时间",
-                    country.getUpdatedAt() != null ? country.getUpdatedAt().format(formatter) : "未知时间"
-                );
-            }
-            pw.println();
-
-            // 导出历史事件数据
-            pw.println("历史事件数据");
-            pw.println("ID,国家ID,开始年份,中文摘要,英文摘要,开始日期原文");
-            List<HistoryEvent> historyEvents = historyEventRepository.findAll();
-            for (HistoryEvent event : historyEvents) {
-                pw.printf("%d,%s,%d,%s,%s,%s%n",
-                    event.getId(),
-                    event.getCountry() != null ? event.getCountry().getId().toString() : "",
-                    event.getStartYear(),
-                    escapeCsv(event.getSummaryZh()),
-                    escapeCsv(event.getSummaryEn()),
-                    escapeCsv(event.getStartDateText())
                 );
             }
             pw.println();

@@ -74,9 +74,6 @@ public class School {
     @Column(name = "like_count")
     private Integer likeCount = 0;
 
-    @Column(name = "history_enabled", nullable = false)
-    private boolean historyEnabled = false;
-
     
     // 构造函数
     public School() {}
@@ -184,14 +181,6 @@ public class School {
 
     public void setLikeCount(Integer likeCount) {
         this.likeCount = likeCount;
-    }
-
-    public boolean isHistoryEnabled() {
-        return historyEnabled;
-    }
-
-    public void setHistoryEnabled(boolean historyEnabled) {
-        this.historyEnabled = historyEnabled;
     }
 
     public User getUser() {

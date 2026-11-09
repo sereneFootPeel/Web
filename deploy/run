@@ -248,12 +248,11 @@ verify_deployment() {
   fi
 
   if command -v mysql >/dev/null 2>&1; then
-    mysql_root_exec -D "$DB_NAME" -e "SELECT COUNT(*) AS history_country_count FROM history_country; SELECT COUNT(*) AS history_event_count FROM history_event;" || true
+    mysql_root_exec -D "$DB_NAME" -e "SHOW TABLES;" || true
   fi
 
   if command -v curl >/dev/null 2>&1; then
     curl -fsS "$HEALTH_URL" || true
-    curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/history/snapshot?year=1900" || true
     curl -s -o /dev/null -w "site_status=%{http_code}\n" http://127.0.0.1/ || true
 
     local live_homepage

@@ -4,8 +4,6 @@ import com.philosophy.model.Philosopher;
 import com.philosophy.repository.CommentRepository;
 import com.philosophy.repository.ContentRepository;
 import com.philosophy.repository.ContentTranslationRepository;
-import com.philosophy.repository.HistoryCountryRepository;
-import com.philosophy.repository.HistoryEventRepository;
 import com.philosophy.repository.LikeRepository;
 import com.philosophy.repository.PhilosopherRepository;
 import com.philosophy.repository.PhilosopherTranslationRepository;
@@ -40,8 +38,6 @@ class DataExportServicePhilosopherImageCsvTest {
         SchoolTranslationRepository schoolTranslationRepository = mock(SchoolTranslationRepository.class);
         ContentTranslationRepository contentTranslationRepository = mock(ContentTranslationRepository.class);
         PhilosopherTranslationRepository philosopherTranslationRepository = mock(PhilosopherTranslationRepository.class);
-        HistoryCountryRepository historyCountryRepository = mock(HistoryCountryRepository.class);
-        HistoryEventRepository historyEventRepository = mock(HistoryEventRepository.class);
 
         DataExportService service = new DataExportService(
             userRepository,
@@ -55,9 +51,7 @@ class DataExportServicePhilosopherImageCsvTest {
             userFollowRepository,
             schoolTranslationRepository,
             contentTranslationRepository,
-            philosopherTranslationRepository,
-            historyCountryRepository,
-            historyEventRepository
+            philosopherTranslationRepository
         );
 
         Philosopher philosopher = new Philosopher();
@@ -76,8 +70,6 @@ class DataExportServicePhilosopherImageCsvTest {
         when(userContentEditRepository.findAll()).thenReturn(List.of());
         when(userBlockRepository.findAll()).thenReturn(List.of());
         when(userFollowRepository.findAll()).thenReturn(List.of());
-        when(historyCountryRepository.findAllByOrderByMapSlotAscIdAsc()).thenReturn(List.of());
-        when(historyEventRepository.findAll()).thenReturn(List.of());
         when(schoolTranslationRepository.findAll()).thenReturn(List.of());
         when(contentTranslationRepository.findAll()).thenReturn(List.of());
         when(philosopherTranslationRepository.findAll()).thenReturn(List.of());

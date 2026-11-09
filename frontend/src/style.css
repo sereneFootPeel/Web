@@ -10,10 +10,10 @@
   --color-secondary: #F1F5F9;
   --color-accent: #FFFFFF;
 
-  /* Background Colors */
-  --bg-primary: #FFFFFF;
+  /* 页面底色保持白；文字面板单独半透明 */
+  --bg-primary: rgba(255, 255, 255, 0.72);
   --bg-secondary: #FFFFFF;
-  --bg-tertiary: #F9FAFB;
+  --bg-tertiary: rgba(249, 250, 251, 0.78);
   --bg-quaternary: #F3F4F6;
 
   /* Text Colors */
@@ -38,7 +38,7 @@
 
 body {
   margin: 0;
-  background-color: var(--bg-secondary);
+  background-color: #ffffff;
   color: var(--text-primary);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
@@ -56,13 +56,28 @@ body {
 
 /* Footer 组件 */
 .footer-component {
-  background-color: var(--color-primary);
+  background-color: rgba(248, 250, 252, 0.46);
   color: var(--text-primary);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+#navbar,
+#mobile-menu {
+  background-color: rgba(248, 250, 252, 0.46);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
 }
 
 .footer-subtitle {
   color: var(--text-primary);
   opacity: 0.9;
+}
+
+.glass-panel {
+  background-color: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(229, 231, 235, 0.95);
+  box-shadow: 0 10px 28px rgba(17, 24, 39, 0.05);
 }
 
 /* 卡片、按钮等通用样式 */
@@ -72,6 +87,8 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition-normal), transform var(--transition-normal);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 
 .card:hover {
@@ -98,6 +115,13 @@ input, textarea, select {
   border: 1px solid var(--border-primary);
   color: var(--text-primary);
   border-radius: var(--radius-md);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+
+.search-modal-panel {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
 }
 
 input:focus, textarea:focus, select:focus {

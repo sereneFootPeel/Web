@@ -1,41 +1,50 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import { Header } from './Header'
 import { Footer } from './Footer'
+import { WaterScene } from './WaterScene'
+import { ArchiveBackground } from './ArchiveBackground'
 
 export function Layout() {
   const location = useLocation()
   const isHome = location.pathname === '/'
   const isHistory = location.pathname.startsWith('/history')
 
-  // 首页：仅显示立方体和欢迎按钮，全屏无 Header/Footer
-  if (isHome) {
-    return (
-      <div
-        className="min-h-screen w-full"
-        style={{ backgroundColor: 'var(--bg-primary)' }}
-      >
-        <Outlet />
-      </div>
-    )
-  }
+  const shellClass = isHome
+    ? 'relative z-10 min-h-screen w-full bg-transparent'
+    : isHistory
+      ? 'relative z-10 h-dvh overflow-hidden flex flex-col bg-transparent'
+      : 'relative z-10 min-h-screen flex flex-col bg-transparent'
 
   return (
-    <div
-      className={isHistory ? 'h-dvh overflow-hidden flex flex-col' : 'min-h-screen flex flex-col'}
-      style={{ backgroundColor: 'var(--bg-secondary)' }}
-    >
-      <Header />
-      <main
-        className={
-          isHistory
-            ? 'flex-1 min-h-0 w-full overflow-hidden pt-16'
-            : 'flex-grow container mx-auto px-4 py-4 sm:py-8'
-        }
-        style={isHistory ? undefined : { paddingTop: 'calc(4rem + 1rem)' }}
-      >
-        <Outlet />
-      </main>
-      {!isHistory ? <Footer /> : null}
-    </div>
+    <>
+      <ArchiveBackground />
+      {isHome ? <WaterScene /> : null}
+      <div className={shellClass}>
+        {isHome ? (
+          <Outlet />
+        ) : (
+          <>
+            <Header />
+            <main
+              className={
+                isHistory
+                  ? 'flex-1 min-h-0 w-full overflow-hidden pt-16'
+                  : 'flex-grow container mx-auto px-4 py-4 sm:py-8'
+              }
+              style={isHistory ? undefined : { paddingTop: 'calc(4rem + 1rem)' }}
+            >
+              {isHistory ? (
+                <Outlet />
+              ) : (
+                <div className="glass-panel min-h-[50vh] rounded-2xl px-4 py-5 sm:px-6 sm:py-7">
+                  <Outlet />
+                </div>
+              )}
+            </main>
+            {!isHistory ? <Footer /> : null}
+          </>
+        )}
+      </div>
+    </>
   )
 }

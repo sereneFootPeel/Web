@@ -146,7 +146,9 @@ public class SchoolService {
 
             schoolToSave.setName(newName);
             schoolToSave.setDescription(schoolFromForm.getDescription());
+            schoolToSave.setDescriptionEn(schoolFromForm.getDescriptionEn());
             schoolToSave.setParent(schoolFromForm.getParent());
+            schoolToSave.setNameEn(schoolFromForm.getNameEn());
             // 如果是新创建（用户字段为空），设置创建者
             if (schoolToSave.getUser() == null) {
                 schoolToSave.setUser(editor);

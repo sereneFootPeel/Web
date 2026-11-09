@@ -117,17 +117,14 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/quotes/random").permitAll()
                 // 健康检查
                 .requestMatchers("/api/health").permitAll()
-                // 历史页 API 公开访问
-                .requestMatchers("/api/history/**").permitAll()
                 // 认证相关API
                 .requestMatchers("/api/auth/login", "/api/auth/register", "/api/auth/send-code").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/auth/csrf").permitAll()
                 .requestMatchers("/api/auth/me").permitAll()
                 // 允许所有用户访问的API（SPA 前端调用）
                 .requestMatchers("/api/schools/**", "/api/philosophers/**", "/api/search/**", "/api/contents/**").permitAll()
-                // 公开用户主页和公开测试结果详情，是否可见由控制器继续判断
+                // 公开用户主页，是否可见由控制器继续判断
                 .requestMatchers(HttpMethod.GET, "/api/user/profile/*").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/test-results/*", "/api/test-results/*/scores").permitAll()
                 // 点赞 API：公开读取，写操作需认证
                 .requestMatchers(HttpMethod.GET, "/api/likes/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/likes/toggle").authenticated()
@@ -136,15 +133,13 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/comments/content/*").authenticated()
                 .requestMatchers(HttpMethod.DELETE, "/api/comments/*").authenticated()
                 // 静态资源
-                .requestMatchers("/css/**", "/js/**", "/images/**", "/data/**", "/error", "/language/**", "/@vite/**", "/node_modules/**").permitAll()
+                .requestMatchers("/css/**", "/js/**", "/images/**", "/error", "/language/**", "/@vite/**", "/node_modules/**").permitAll()
                 // 允许访问Vite相关资源
                 // 用户相关API需要认证
                 // 用户相关API需要认证
                 .requestMatchers("/api/user/**").authenticated()
                 // 管理后台API需要ADMIN
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
-                // 测试结果保存/可见性/删除需认证
-                .requestMatchers("/api/test-results", "/api/test-results/**").authenticated()
                 // 管理员页面需要ADMIN角色
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 // 其他所有请求都需要认证

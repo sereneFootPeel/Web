@@ -234,7 +234,7 @@ export function Philosophers() {
         <div
           ref={listRef}
           onScroll={handleScroll}
-          className="space-y-2 overflow-y-auto pr-1 flex-1 min-h-0"
+          className="space-y-2 overflow-y-auto pr-1 flex-1 min-h-0 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
         >
           {names.map((n) => (
             <button

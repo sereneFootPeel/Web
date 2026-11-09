@@ -13,9 +13,7 @@ export default defineConfig({
       '/api': apiProxyTarget,
       '/likes': apiProxyTarget,
       '/language': apiProxyTarget,
-      // 前后端分离后，测试页面在前端实现，仅保留数据与资源代理
       '/css': apiProxyTarget,
-      '/data': apiProxyTarget,
     },
   },
 })
