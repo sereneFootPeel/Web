@@ -905,12 +905,15 @@ public class HomeController {
     public ResponseEntity<List<Map<String, Object>>> getRandomQuotes(
             @RequestParam(value = "count", defaultValue = "12") int count,
             @RequestParam(value = "excludeIds", required = false) String excludeIds,
+            @RequestParam(value = "lang", required = false) String lang,
             HttpServletRequest request,
             Authentication authentication) {
         
         try {
-            // 获取当前语言设置（根据IP自动判断默认语言）
-            String language = languageUtil.getLanguage(request);
+            // 获取当前语言设置（根据IP自动判断默认语言）；lang 可单独指定这一次的语言
+            String language = "en".equals(lang) || "zh".equals(lang)
+                    ? lang
+                    : languageUtil.getLanguage(request);
             
             // 获取当前用户（用于隐私过滤）
             boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);

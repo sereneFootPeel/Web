@@ -144,14 +144,17 @@ public class SchoolApiController {
     @GetMapping("/api/schools/detail")
     @Transactional(readOnly = true)
     public ResponseEntity<SchoolDetailDTO> getSchoolDetail(@RequestParam("id") Long id,
+                                                           @RequestParam(value = "lang", required = false) String lang,
                                                            HttpServletRequest request) {
         School school = schoolService.getSchoolById(id);
         if (school == null) {
             return ResponseEntity.ok(new SchoolDetailDTO());
         }
 
-        // 获取当前语言设置（根据IP自动判断默认语言）
-        String language = languageUtil.getLanguage(request);
+        // 获取当前语言设置（根据IP自动判断默认语言）；lang 可单独指定这一次的语言
+        String language = "en".equals(lang) || "zh".equals(lang)
+                ? lang
+                : languageUtil.getLanguage(request);
 
         String displayName = translationService.getSchoolDisplayName(school, language);
         String displayDesc = translationService.getSchoolDisplayDescription(school, language);

@@ -163,10 +163,13 @@ export const philosophyApi = {
   philosopherNames: (offset = 0, limit = 30) =>
     apiGet<PhilosopherNamesResponse>(`/philosophers/names?offset=${offset}&limit=${limit}`),
   philosopher: (id: number) => apiGet<{ success: boolean; philosopher: PhilosopherData; hasMore: boolean }>(`/philosophers/${id}`),
-  randomQuotes: (count = 12, excludeIds?: string) =>
-    apiGet<QuoteItem[]>(`/quotes/random?count=${count}${excludeIds ? `&excludeIds=${excludeIds}` : ''}`),
+  randomQuotes: (count = 12, excludeIds?: string, lang?: 'zh' | 'en') =>
+    apiGet<QuoteItem[]>(
+      `/quotes/random?count=${count}${excludeIds ? `&excludeIds=${excludeIds}` : ''}${lang ? `&lang=${lang}` : ''}`,
+    ),
   schoolNodes: () => apiGet<SchoolNode[]>('/schools/nodes'),
-  schoolDetail: (id: number) => apiGet<SchoolDetail>('/schools/detail?id=' + id),
+  schoolDetail: (id: number, lang?: 'zh' | 'en') =>
+    apiGet<SchoolDetail>(`/schools/detail?id=${id}${lang ? `&lang=${lang}` : ''}`),
   schoolContents: (id: number, page = 0, size = 10) =>
     apiGet<SchoolContentsPageResponse>(`/schools/contents/more?id=${id}&page=${page}&size=${size}`),
   search: (query: string) =>
