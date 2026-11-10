@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { signalDenied } from '../archiveTone'
 import { useLanguage } from '../contexts/LanguageContext'
 
 export function Login() {
@@ -12,7 +13,8 @@ export function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const { t } = useLanguage()
-  const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/'
+  const fromState = (location.state as { from?: { pathname: string; search?: string } })?.from
+  const from = fromState ? `${fromState.pathname}${fromState.search || ''}` : '/'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -24,6 +26,7 @@ export function Login() {
       navigate(from, { replace: true })
     } else {
       setError(result.message || t('登录失败', 'Login failed'))
+      signalDenied()
     }
   }
 

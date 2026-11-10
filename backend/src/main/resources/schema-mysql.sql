@@ -131,3 +131,54 @@ SET @philosophers_add_image_file_name_sql := IF(
 PREPARE philosophers_add_image_file_name_stmt FROM @philosophers_add_image_file_name_sql;
 EXECUTE philosophers_add_image_file_name_stmt;
 DEALLOCATE PREPARE philosophers_add_image_file_name_stmt;
+
+-- Forum boards, threads, and replies.
+CREATE TABLE IF NOT EXISTS forum_categories (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    slug VARCHAR(40) NOT NULL,
+    name VARCHAR(80) NOT NULL,
+    name_en VARCHAR(80) NOT NULL,
+    description VARCHAR(255) NULL,
+    description_en VARCHAR(255) NULL,
+    sort_order INT NOT NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_forum_categories_slug (slug)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS forum_threads (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    category_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    title VARCHAR(80) NOT NULL,
+    body TEXT NOT NULL,
+    reply_count INT NOT NULL,
+    view_count INT NOT NULL,
+    pinned BIT(1) NOT NULL,
+    locked BIT(1) NOT NULL,
+    created_at DATETIME(6) NULL,
+    updated_at DATETIME(6) NULL,
+    last_activity_at DATETIME(6) NULL,
+    PRIMARY KEY (id),
+    KEY idx_forum_threads_activity (pinned, last_activity_at, id),
+    KEY idx_forum_threads_category (category_id, pinned, last_activity_at),
+    KEY idx_forum_threads_user (user_id),
+    CONSTRAINT fk_forum_threads_category FOREIGN KEY (category_id) REFERENCES forum_categories (id),
+    CONSTRAINT fk_forum_threads_user FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS forum_replies (
+    id BIGINT NOT NULL AUTO_INCREMENT,
+    thread_id BIGINT NOT NULL,
+    parent_id BIGINT NULL,
+    user_id BIGINT NOT NULL,
+    body TEXT NOT NULL,
+    created_at DATETIME(6) NULL,
+    updated_at DATETIME(6) NULL,
+    PRIMARY KEY (id),
+    KEY idx_forum_replies_thread (thread_id, created_at),
+    KEY idx_forum_replies_parent (parent_id),
+    KEY idx_forum_replies_user (user_id),
+    CONSTRAINT fk_forum_replies_thread FOREIGN KEY (thread_id) REFERENCES forum_threads (id) ON DELETE CASCADE,
+    CONSTRAINT fk_forum_replies_parent FOREIGN KEY (parent_id) REFERENCES forum_replies (id) ON DELETE CASCADE,
+    CONSTRAINT fk_forum_replies_user FOREIGN KEY (user_id) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

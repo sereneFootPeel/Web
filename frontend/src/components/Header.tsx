@@ -6,6 +6,7 @@ import { useLanguage } from '../contexts/LanguageContext'
 const navItems = [
   { path: '/philosophers', labelZh: '哲学家', labelEn: 'Philosophers', icon: 'fa-users' },
   { path: '/schools', labelZh: '学派', labelEn: 'Schools', icon: 'fa-university' },
+  { path: '/forum', labelZh: '论坛', labelEn: 'Forum', icon: 'fa-comments' },
 ]
 
 export function Header() {
@@ -39,7 +40,7 @@ export function Header() {
                   to={path}
                   className="px-3 py-3 rounded-md text-sm font-medium hover:opacity-80 transition-colors"
                   style={{
-                    color: location.pathname === path
+                    color: location.pathname === path || location.pathname.startsWith(`${path}/`)
                       ? 'var(--text-primary)'
                       : 'var(--text-secondary)',
                   }}

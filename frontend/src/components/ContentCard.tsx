@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { fetchWithCredentials } from '../api/client'
+import { useAuth } from '../contexts/AuthContext'
 import { useLanguage } from '../contexts/LanguageContext'
 
 export type ContentCardData = {
@@ -61,7 +62,9 @@ export function ContentCard({
   showSchool = false,
 }: ContentCardProps) {
   const { language } = useLanguage()
+  const { authenticated } = useAuth()
   const navigate = useNavigate()
+  const showLike = showLikeButton && authenticated
   const [isLiked, setIsLiked] = useState(item.isLiked ?? false)
   const [loading, setLoading] = useState(false)
   const localizedText = getLocalizedText(item, language).trim()
@@ -138,7 +141,7 @@ export function ContentCard({
             )}
           </div>
         </div>
-        {showLikeButton && (
+        {showLike && (
           <button
             type="button"
             className="flex-shrink-0 flex items-center justify-center w-9 h-9 rounded-full transition-opacity duration-300 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 hover:bg-red-50"

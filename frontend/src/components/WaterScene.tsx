@@ -8,8 +8,6 @@ varying vec3 vNormal;
 varying vec3 vView;
 varying vec3 vLocal;
 uniform float uTime;
-uniform vec3 uHit;
-uniform float uAmount;
 
 void main() {
   vec3 n = normalize(normal);
@@ -22,9 +20,7 @@ void main() {
     * sin(position.z * 7.0 + uTime);
   float travel = sin(position.x * 15.0 + position.z * 12.0 + uTime * 2.1)
     * cos(position.y * 14.0 - uTime * 1.5);
-  float dist = length(position - uHit);
-  float influence = exp(-(dist * dist) / 0.05);
-  vec3 pos = position + outward * (wave * 0.012 + edge * travel * 0.04 + influence * uAmount * 0.07);
+  vec3 pos = position + outward * (wave * 0.012 + edge * travel * 0.04);
   vec4 world = modelMatrix * vec4(pos, 1.0);
   vec4 viewPos = viewMatrix * world;
   vLocal = pos;
@@ -73,7 +69,8 @@ void main() {
 `
 
 /**
- * 首页中央的透明白水立方体。缓慢转动，指针靠近时表面轻轻鼓起。
+ * 首页中央的透明白水立方体。缓慢转动；指针停在上面时轻轻偏向指针。
+ * 光影、体积都保持不变。
  */
 export function WaterScene() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -108,8 +105,6 @@ export function WaterScene() {
     background.generateMipmaps = false
     const uniforms = {
       uTime: { value: 0 },
-      uHit: { value: new THREE.Vector3(0, 0, 0.5) },
-      uAmount: { value: 0 },
       uPass: { value: 0 },
       uResolution: { value: new THREE.Vector2(1, 1) },
       uBackground: { value: background },
@@ -125,8 +120,6 @@ export function WaterScene() {
     const frontMaterial = new THREE.ShaderMaterial({
       uniforms: {
         uTime: uniforms.uTime,
-        uHit: uniforms.uHit,
-        uAmount: uniforms.uAmount,
         uPass: { value: 1 },
         uResolution: uniforms.uResolution,
         uBackground: uniforms.uBackground,
@@ -146,15 +139,18 @@ export function WaterScene() {
     group.add(back, front)
     group.scale.setScalar(0.64)
     group.rotation.set(0.62, 0.48, 0)
-    scene.add(group)
+    const tilt = new THREE.Group()
+    tilt.add(group)
+    scene.add(tilt)
 
     const raycaster = new THREE.Raycaster()
     const pointer = new THREE.Vector2()
     const hitPoint = new THREE.Vector3()
+    const targetHit = new THREE.Vector3(0, 0, 0.5)
+    const smoothedHit = new THREE.Vector3(0, 0, 0.5)
     let cssW = 1
     let cssH = 1
     let hover = false
-    let amount = 0
     let lastTime = performance.now()
     let animationId = 0
     let running = true
@@ -181,10 +177,15 @@ export function WaterScene() {
       lastTime = now
       group.rotation.x += dt * 0.12
       group.rotation.y += dt * 0.16
-      const target = hover ? 1 : 0
-      amount += (target - amount) * (1 - Math.exp(-dt * 8))
+      if (hover) {
+        smoothedHit.lerp(targetHit, 1 - Math.exp(-dt * 18))
+      }
+      const lean = 1 - Math.exp(-dt * 4.5)
+      const leanX = hover ? -smoothedHit.y * 0.28 : 0
+      const leanY = hover ? smoothedHit.x * 0.32 : 0
+      tilt.rotation.x += (leanX - tilt.rotation.x) * lean
+      tilt.rotation.y += (leanY - tilt.rotation.y) * lean
       uniforms.uTime.value = now / 1000
-      uniforms.uAmount.value = amount
       const archive = document.querySelector('canvas:not(.home-cube)')
       if (archive instanceof HTMLCanvasElement && archive.width > 0) {
         background.image = archive
@@ -208,7 +209,7 @@ export function WaterScene() {
       }
       hitPoint.copy(hit.point)
       front.worldToLocal(hitPoint)
-      uniforms.uHit.value.copy(hitPoint)
+      targetHit.copy(hitPoint)
       hover = true
       document.documentElement.style.cursor = 'pointer'
     }

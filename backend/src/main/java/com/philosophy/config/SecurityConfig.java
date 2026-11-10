@@ -132,6 +132,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/comments/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/comments/content/*").authenticated()
                 .requestMatchers(HttpMethod.DELETE, "/api/comments/*").authenticated()
+                // 论坛：浏览公开，发帖、回复和删除需登录
+                .requestMatchers(HttpMethod.GET, "/api/forum/**").permitAll()
+                .requestMatchers("/api/forum/**").authenticated()
                 // 静态资源
                 .requestMatchers("/css/**", "/js/**", "/images/**", "/error", "/language/**", "/@vite/**", "/node_modules/**").permitAll()
                 // 允许访问Vite相关资源
