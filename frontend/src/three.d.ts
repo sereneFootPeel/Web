@@ -10,6 +10,8 @@ declare module 'three' {
   export const LinearFilter: unknown
   export const BackSide: unknown
   export const FrontSide: unknown
+  export const DoubleSide: unknown
+  export const AdditiveBlending: unknown
 
   class Loose {
     constructor(...args: any[])
@@ -26,6 +28,9 @@ declare module 'three' {
   export class HemisphereLight extends Loose {}
   export class DirectionalLight extends Loose {}
   export class PlaneGeometry extends Loose {}
+  export class Shape extends Loose {}
+  export class ExtrudeGeometry extends Loose {}
+  export class MeshBasicMaterial extends Loose {}
   export class MeshStandardMaterial extends Loose {}
   export class MeshPhysicalMaterial extends Loose {}
   export class Mesh extends Loose {}

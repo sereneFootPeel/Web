@@ -53,7 +53,11 @@ function createKeyGeometry(inset = 0) {
 }
 
 function tintByHeight(material: THREE.Material) {
-  material.onBeforeCompile = (shader) => {
+  material.onBeforeCompile = (shader: {
+    vertexShader: string
+    fragmentShader: string
+    uniforms: Record<string, { value: unknown }>
+  }) => {
     shader.vertexShader = `varying float vPanelHeight;\n${shader.vertexShader}`
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
@@ -215,7 +219,6 @@ export function ArchiveBackground() {
     let running = true
     let animationId = 0
     const started = performance.now()
-    const nowSeconds = () => (performance.now() - started) / 1000
     const ampOf = (amount: number) => IDLE_AMP + (ACTIVE_AMP - IDLE_AMP) * amount
     const speedOf = (amount: number) => IDLE_SPEED + (ACTIVE_SPEED - IDLE_SPEED) * amount
 
@@ -438,7 +441,11 @@ export function ArchiveBackground() {
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
     })
-    glowMaterial.onBeforeCompile = (shader) => {
+    glowMaterial.onBeforeCompile = (shader: {
+      vertexShader: string
+      fragmentShader: string
+      uniforms: Record<string, { value: unknown }>
+    }) => {
       shader.uniforms.uShade = shadeUniform
       shader.vertexShader = `varying float vGlow;\n${shader.vertexShader}`
       shader.vertexShader = shader.vertexShader.replace(
