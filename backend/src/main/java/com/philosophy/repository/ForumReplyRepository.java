@@ -18,6 +18,9 @@ public interface ForumReplyRepository extends JpaRepository<ForumReply, Long> {
     @Query("SELECT r FROM ForumReply r JOIN FETCH r.author JOIN FETCH r.thread WHERE r.id = :id")
     Optional<ForumReply> findWithThread(@Param("id") Long id);
 
+    @Query("SELECT r FROM ForumReply r JOIN FETCH r.author JOIN FETCH r.thread LEFT JOIN FETCH r.parent ORDER BY r.thread.id ASC, r.id ASC")
+    List<ForumReply> findAllForExport();
+
     List<ForumReply> findByParentId(Long parentId);
 
     @Query("SELECT MAX(r.createdAt) FROM ForumReply r WHERE r.thread.id = :threadId")

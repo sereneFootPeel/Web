@@ -68,10 +68,9 @@ async function send<T>(path: string, method: string, body?: unknown): Promise<T>
 
 export const forumApi = {
   categories: () => apiGet<{ success: boolean; categories: ForumCategory[] }>('/forum/categories'),
-  threads: (params: { categoryId?: number; q?: string; page?: number; size?: number }) => {
+  threads: (params: { categoryId?: number; page?: number; size?: number }) => {
     const search = new URLSearchParams()
     if (params.categoryId) search.set('categoryId', String(params.categoryId))
-    if (params.q) search.set('q', params.q)
     search.set('page', String(params.page ?? 0))
     search.set('size', String(params.size ?? 20))
     return apiGet<ForumThreadPage>(`/forum/threads?${search.toString()}`)

@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { formatForumTime } from '../api/forum'
 import {
   philosophyApi,
   type SearchCategory,
   type SearchContentItem,
   type SearchPhilosopherItem,
   type SearchSchoolItem,
+  type SearchThreadItem,
 } from '../api/philosophy'
 import { ContentCard } from '../components/ContentCard'
 import { PhilosopherCard } from '../components/PhilosopherCard'
@@ -16,14 +18,16 @@ type SearchResult = {
   philosophers: SearchPhilosopherItem[]
   schools: SearchSchoolItem[]
   contents: SearchContentItem[]
+  threads: SearchThreadItem[]
 }
 
 type SearchTotals = Record<SearchCategory, number>
 type SearchLoadingMap = Record<SearchCategory, boolean>
 
 const SEARCH_PAGE_SIZE = 5
-const EMPTY_TOTALS: SearchTotals = { philosophers: 0, schools: 0, contents: 0 }
-const EMPTY_LOADING_MORE: SearchLoadingMap = { philosophers: false, schools: false, contents: false }
+const EMPTY_TOTALS: SearchTotals = { philosophers: 0, schools: 0, contents: 0, threads: 0 }
+const EMPTY_LOADING_MORE: SearchLoadingMap = { philosophers: false, schools: false, contents: false, threads: false }
+const EMPTY_RESULTS: SearchResult = { philosophers: [], schools: [], contents: [], threads: [] }
 
 function mergeById<T extends { id: number }>(current: T[], incoming: T[]) {
   const seen = new Set(current.map((item) => item.id))
@@ -96,7 +100,7 @@ function EntityLinkCard({ to, name }: { to: string; name: string }) {
 }
 
 export function Search() {
-  const { t } = useLanguage()
+  const { language, t } = useLanguage()
   const [searchParams, setSearchParams] = useSearchParams()
   const qFromUrl = (searchParams.get('q') ?? '').trim()
   const [query, setQuery] = useState(qFromUrl)
@@ -105,10 +109,11 @@ export function Search() {
   const [loading, setLoading] = useState(false)
   const [loadingMore, setLoadingMore] = useState<SearchLoadingMap>(EMPTY_LOADING_MORE)
   const [error, setError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({
+  const [expanded, setExpanded] = useState<Record<SearchCategory, boolean>>({
     philosophers: true,
     schools: true,
     contents: true,
+    threads: true,
   })
   const toggleSection = (key: SearchCategory) =>
     setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
@@ -132,27 +137,29 @@ export function Search() {
     setResults(null)
     setTotals(EMPTY_TOTALS)
     setLoadingMore(EMPTY_LOADING_MORE)
-    philosophyApi
-      .search(q)
-      .then((res) => {
-        if (cancelled) return
-        setResults({
-          philosophers: Array.isArray(res.philosophers) ? res.philosophers : [],
-          schools: Array.isArray(res.schools) ? res.schools : [],
-          contents: Array.isArray(res.contents) ? res.contents : [],
-        })
-        setTotals({
-          philosophers: res.philosopherTotalCount ?? res.philosophers.length,
-          schools: res.schoolTotalCount ?? res.schools.length,
-          contents: res.contentTotalCount ?? res.contents.length,
-        })
+    philosophyApi.search(q).then((res) => {
+      if (cancelled) return
+      const nextResults: SearchResult = {
+        philosophers: Array.isArray(res.philosophers) ? res.philosophers : [],
+        schools: Array.isArray(res.schools) ? res.schools : [],
+        contents: Array.isArray(res.contents) ? res.contents : [],
+        threads: Array.isArray(res.threads) ? res.threads : [],
+      }
+      setResults(nextResults)
+      setTotals({
+        philosophers: res.philosopherTotalCount ?? nextResults.philosophers.length,
+        schools: res.schoolTotalCount ?? nextResults.schools.length,
+        contents: res.contentTotalCount ?? nextResults.contents.length,
+        threads: res.threadTotalCount ?? nextResults.threads.length,
       })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : t('搜索失败', 'Search failed'))
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    }).catch((e: unknown) => {
+      if (cancelled) return
+      setResults({ ...EMPTY_RESULTS })
+      setTotals({ ...EMPTY_TOTALS })
+      setError(e instanceof Error ? e.message : t('搜索失败', 'Search failed'))
+    }).finally(() => {
+      if (!cancelled) setLoading(false)
+    })
     return () => {
       cancelled = true
     }
@@ -213,6 +220,13 @@ export function Search() {
     onLoadMore: () => handleLoadMore('contents'),
   })
 
+  const threadSentinelRef = useAutoLoadMore({
+    enabled: Boolean(results && expanded.threads),
+    hasMore: Boolean(results && results.threads.length < totals.threads),
+    loading: loading || loadingMore.threads,
+    onLoadMore: () => handleLoadMore('threads'),
+  })
+
   return (
     <div className="max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-6" style={{ color: 'var(--text-primary)' }}>
@@ -244,9 +258,9 @@ export function Search() {
       {loading && <p className="mb-4" style={{ color: 'var(--text-secondary)' }}>{t('正在获取搜索结果...', 'Fetching search results...')}</p>}
       {results && (
         <div className="space-y-4">
-          {(totals.philosophers + totals.schools + totals.contents > 0) && (
+          {(totals.philosophers + totals.schools + totals.contents + totals.threads > 0) && (
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              {t('共找到', 'Found')} {totals.philosophers + totals.schools + totals.contents} {t('条结果', 'results')}
+              {t('共找到', 'Found')} {totals.philosophers + totals.schools + totals.contents + totals.threads} {t('条结果', 'results')}
             </p>
           )}
           {results.philosophers.length > 0 && (
@@ -320,9 +334,60 @@ export function Search() {
               )}
             </SearchResultSection>
           )}
+          {results.threads.length > 0 && (
+            <SearchResultSection
+              title={t('论坛帖子', 'Forum threads')}
+              count={`${results.threads.length}/${totals.threads}`}
+              expanded={expanded.threads}
+              onToggle={() => toggleSection('threads')}
+            >
+              <div className="space-y-3">
+                {results.threads.map((thread) => (
+                  <Link
+                    key={thread.id}
+                    to={`/forum/${thread.id}`}
+                    className="block rounded-lg border p-4 transition-all duration-300 hover:shadow-md hover:border-opacity-80"
+                    style={{
+                      borderColor: 'var(--border-primary)',
+                      background: 'var(--bg-primary)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
+                    <span className="hover:underline" style={{ color: 'var(--color-primary)' }}>
+                      {thread.pinned ? `${t('置顶', 'Pinned')} · ` : ''}
+                      {thread.locked ? `${t('锁定', 'Locked')} · ` : ''}
+                      {thread.title}
+                    </span>
+                    {thread.excerpt ? (
+                      <p className="mt-2 line-clamp-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
+                        {thread.excerpt}
+                      </p>
+                    ) : null}
+                    <p className="mt-2 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                      {thread.user?.username || t('匿名', 'Anonymous')}
+                      {' · '}
+                      {t(`${thread.replyCount} 回复`, `${thread.replyCount} replies`)}
+                      {' · '}
+                      {formatForumTime(thread.lastActivityAt ?? null, language)}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+              {results.threads.length < totals.threads && (
+                <div ref={threadSentinelRef} className="flex min-h-8 items-center justify-center pt-1">
+                  {loadingMore.threads ? (
+                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+                      {t('加载中...', 'Loading...')}
+                    </span>
+                  ) : null}
+                </div>
+              )}
+            </SearchResultSection>
+          )}
           {results.philosophers.length === 0 &&
             results.schools.length === 0 &&
-            results.contents.length === 0 && (
+            results.contents.length === 0 &&
+            results.threads.length === 0 && (
               <p className="text-gray-500 py-4">{t('未找到相关结果', 'No results found')}</p>
             )}
         </div>

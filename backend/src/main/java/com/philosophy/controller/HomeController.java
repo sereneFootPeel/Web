@@ -4,8 +4,10 @@ package com.philosophy.controller;
 import com.philosophy.model.Philosopher;
 import com.philosophy.model.School;
 import com.philosophy.model.Content;
+import com.philosophy.model.ForumThread;
 import com.philosophy.model.User;
 import com.philosophy.service.PhilosopherService;
+import com.philosophy.service.ForumService;
 import com.philosophy.service.SchoolService;
 import com.philosophy.service.CommentService;
 import com.philosophy.service.TranslationService;
@@ -52,9 +54,10 @@ public class HomeController {
     private final LikeService likeService;
     private final UserService userService;
     private final LanguageUtil languageUtil;
+    private final ForumService forumService;
     
     // 构造函数注入
-    public HomeController(PhilosopherService philosopherService, SchoolService schoolService, CommentService commentService, TranslationService translationService, ContentService contentService, LikeService likeService, UserService userService, LanguageUtil languageUtil) {
+    public HomeController(PhilosopherService philosopherService, SchoolService schoolService, CommentService commentService, TranslationService translationService, ContentService contentService, LikeService likeService, UserService userService, LanguageUtil languageUtil, ForumService forumService) {
         this.philosopherService = philosopherService;
         this.schoolService = schoolService;
         this.commentService = commentService;
@@ -63,6 +66,7 @@ public class HomeController {
         this.likeService = likeService;
         this.userService = userService;
         this.languageUtil = languageUtil;
+        this.forumService = forumService;
     }
 
     /**
@@ -117,6 +121,41 @@ public class HomeController {
             return List.of();
         }
         return new ArrayList<>(items.subList(0, Math.min(SEARCH_PREVIEW_LIMIT, items.size())));
+    }
+
+    private List<Map<String, Object>> toThreadItems(List<ForumThread> threads) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (ForumThread thread : threads) {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", thread.getId());
+            map.put("title", thread.getTitle());
+            map.put("excerpt", excerpt(thread.getBody()));
+            map.put("replyCount", thread.getReplyCount());
+            map.put("pinned", thread.isPinned());
+            map.put("locked", thread.isLocked());
+            map.put("lastActivityAt", thread.getLastActivityAt() == null ? null : thread.getLastActivityAt().toString());
+            if (thread.getAuthor() == null) {
+                map.put("user", null);
+            } else {
+                Map<String, Object> user = new HashMap<>();
+                user.put("id", thread.getAuthor().getId());
+                user.put("username", thread.getAuthor().getUsername());
+                map.put("user", user);
+            }
+            items.add(map);
+        }
+        return items;
+    }
+
+    private String excerpt(String body) {
+        if (body == null) {
+            return "";
+        }
+        String flat = body.replace('\n', ' ').trim();
+        if (flat.length() <= 120) {
+            return flat;
+        }
+        return flat.substring(0, 120) + "…";
     }
 
     /**
@@ -203,13 +242,17 @@ public class HomeController {
             User currentUser = isAuthenticated ? (User) authentication.getPrincipal() : null;
             contents = contentService.filterContentsByPrivacy(contents, currentUser);
 
+            List<ForumThread> threads = forumService.searchThreads(trimmedQuery);
+
             int philosopherTotalCount = philosophers.size();
             int schoolTotalCount = schools.size();
             int contentTotalCount = contents.size();
+            int threadTotalCount = threads.size();
 
             List<Philosopher> philosopherPreview = previewResults(philosophers);
             List<School> schoolPreview = previewResults(schools);
             List<Content> contentPreview = previewResults(contents);
+            List<ForumThread> threadPreview = previewResults(threads);
 
             List<Map<String, Object>> philosopherItems = new ArrayList<>();
             for (Philosopher p : philosopherPreview) {
@@ -285,11 +328,13 @@ public class HomeController {
             response.put("philosophers", philosopherItems);
             response.put("schools", schoolItems);
             response.put("contents", contentItems);
+            response.put("threads", toThreadItems(threadPreview));
             response.put("previewLimit", SEARCH_PREVIEW_LIMIT);
             response.put("philosopherTotalCount", philosopherTotalCount);
             response.put("schoolTotalCount", schoolTotalCount);
             response.put("contentTotalCount", contentTotalCount);
-            response.put("totalResults", philosopherTotalCount + schoolTotalCount + contentTotalCount);
+            response.put("threadTotalCount", threadTotalCount);
+            response.put("totalResults", philosopherTotalCount + schoolTotalCount + contentTotalCount + threadTotalCount);
 
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -447,6 +492,17 @@ public class HomeController {
                     logger.info("内容分页结果: 返回={}", results.size());
                     break;
                     
+                case "threads":
+                    List<ForumThread> allThreads = forumService.searchThreads(trimmedQuery);
+                    totalCount = allThreads.size();
+                    int startT = safePage * safeSize;
+                    int endT = Math.min(startT + safeSize, totalCount);
+                    if (startT < totalCount) {
+                        results.addAll(toThreadItems(allThreads.subList(startT, endT)));
+                    }
+                    logger.info("论坛搜索结果: 总数={}, 返回={}", totalCount, results.size());
+                    break;
+
                 case "users":
                     List<User> allUsers = userService.searchUsers(trimmedQuery);
                     totalCount = allUsers.size();

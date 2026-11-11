@@ -37,13 +37,22 @@ public class ForumService {
     }
 
     @Transactional(readOnly = true)
-    public Page<ForumThread> listThreads(Long categoryId, String keyword, int page, int size) {
+    public Page<ForumThread> listThreads(Long categoryId, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = Math.min(Math.max(size, 1), 50);
         if (categoryId != null && !categoryRepository.existsById(categoryId)) {
             throw new IllegalArgumentException("板块不存在");
         }
-        return threadRepository.search(categoryId, normalizeKeyword(keyword), PageRequest.of(safePage, safeSize));
+        return threadRepository.findPage(categoryId, PageRequest.of(safePage, safeSize));
+    }
+
+    @Transactional(readOnly = true)
+    public List<ForumThread> searchThreads(String keyword) {
+        String normalized = normalizeKeyword(keyword);
+        if (normalized == null) {
+            return List.of();
+        }
+        return threadRepository.searchByKeyword(normalized);
     }
 
     @Transactional(readOnly = true)

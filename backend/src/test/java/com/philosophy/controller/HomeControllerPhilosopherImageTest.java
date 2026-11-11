@@ -2,6 +2,7 @@ package com.philosophy.controller;
 
 import com.philosophy.model.Philosopher;
 import com.philosophy.service.CommentService;
+import com.philosophy.service.ForumService;
 import com.philosophy.service.ContentService;
 import com.philosophy.service.LikeService;
 import com.philosophy.service.PhilosopherService;
@@ -44,6 +45,8 @@ class HomeControllerPhilosopherImageTest {
 	private UserService userService;
 	@Mock
 	private LanguageUtil languageUtil;
+	@Mock
+	private ForumService forumService;
 
 	private HomeController controller;
 
@@ -57,7 +60,8 @@ class HomeControllerPhilosopherImageTest {
 			contentService,
 			likeService,
 			userService,
-			languageUtil
+			languageUtil,
+			forumService
 		);
 	}
 

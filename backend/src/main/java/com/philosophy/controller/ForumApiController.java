@@ -54,11 +54,10 @@ public class ForumApiController {
     @GetMapping("/threads")
     public ResponseEntity<Map<String, Object>> threads(
             @RequestParam(required = false) Long categoryId,
-            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         try {
-            Page<ForumThread> result = forumService.listThreads(categoryId, q, page, size);
+            Page<ForumThread> result = forumService.listThreads(categoryId, page, size);
             List<Map<String, Object>> items = new ArrayList<>();
             for (ForumThread thread : result.getContent()) {
                 items.add(toThreadSummary(thread));

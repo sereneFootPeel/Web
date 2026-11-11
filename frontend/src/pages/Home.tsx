@@ -78,20 +78,18 @@ export function Home() {
       </Link>
 
       <div className="pointer-events-none fixed inset-0 z-[2]">
-        <div className="absolute inset-x-0 top-0 flex items-start justify-between px-7 pt-8 sm:px-12 sm:pt-10 md:px-16 md:pt-12">
-          <div className="home-mark">
-            <p className="text-[1.375rem] font-normal tracking-[0.12em] text-[var(--text-secondary)]">
-              {dateLine}
-            </p>
-            <p className="mt-2 text-lg font-normal uppercase tracking-[0.2em] text-[var(--text-tertiary)]">
-              {WEEKDAYS[now.getDay()]}
-            </p>
-          </div>
+        <div className="home-chrono absolute inset-x-0 top-0 px-7 pt-8 sm:px-12 sm:pt-10 md:px-16 md:pt-12">
+          <p className="home-date home-mark text-[1.375rem] font-normal tracking-[0.12em] text-[var(--text-secondary)]">
+            {dateLine}
+          </p>
           <p
-            className="home-mark text-[1.375rem] font-normal tracking-[0.12em] text-[var(--text-secondary)] tabular-nums"
+            className="home-time home-mark text-[1.375rem] font-normal tracking-[0.12em] text-[var(--text-secondary)] tabular-nums"
             style={{ animationDelay: '90ms' }}
           >
             {timeLine}
+          </p>
+          <p className="home-weekday home-mark text-lg font-normal uppercase tracking-[0.2em] text-[var(--text-tertiary)]">
+            {WEEKDAYS[now.getDay()]}
           </p>
         </div>
 

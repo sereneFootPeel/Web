@@ -29,6 +29,9 @@ public class DataExportService {
     private final SchoolTranslationRepository schoolTranslationRepository;
     private final ContentTranslationRepository contentTranslationRepository;
     private final PhilosopherTranslationRepository philosopherTranslationRepository;
+    private final ForumCategoryRepository forumCategoryRepository;
+    private final ForumThreadRepository forumThreadRepository;
+    private final ForumReplyRepository forumReplyRepository;
 
     public DataExportService(UserRepository userRepository,
                              SchoolRepository schoolRepository,
@@ -41,7 +44,10 @@ public class DataExportService {
                              UserFollowRepository userFollowRepository,
                              SchoolTranslationRepository schoolTranslationRepository,
                              ContentTranslationRepository contentTranslationRepository,
-                             PhilosopherTranslationRepository philosopherTranslationRepository) {
+                             PhilosopherTranslationRepository philosopherTranslationRepository,
+                             ForumCategoryRepository forumCategoryRepository,
+                             ForumThreadRepository forumThreadRepository,
+                             ForumReplyRepository forumReplyRepository) {
         this.userRepository = userRepository;
         this.schoolRepository = schoolRepository;
         this.philosopherRepository = philosopherRepository;
@@ -54,6 +60,9 @@ public class DataExportService {
         this.schoolTranslationRepository = schoolTranslationRepository;
         this.contentTranslationRepository = contentTranslationRepository;
         this.philosopherTranslationRepository = philosopherTranslationRepository;
+        this.forumCategoryRepository = forumCategoryRepository;
+        this.forumThreadRepository = forumThreadRepository;
+        this.forumReplyRepository = forumReplyRepository;
     }
 
     public String exportAllDataToCsv() {
@@ -312,6 +321,56 @@ public class DataExportService {
             }
             pw.println();
 
+            pw.println("论坛板块数据");
+            pw.println("ID,标识,名称,英文名称,描述,英文描述,排序");
+            for (ForumCategory category : forumCategoryRepository.findAllByOrderBySortOrderAscIdAsc()) {
+                pw.println(String.join(",",
+                    String.valueOf(category.getId()),
+                    escapeCsv(category.getSlug()),
+                    escapeCsv(category.getName()),
+                    escapeCsv(category.getNameEn()),
+                    escapeCsv(category.getDescription()),
+                    escapeCsv(category.getDescriptionEn()),
+                    String.valueOf(category.getSortOrder())
+                ));
+            }
+            pw.println();
+
+            pw.println("论坛帖子数据");
+            pw.println("ID,板块ID,作者ID,标题,正文,回复数,浏览数,是否置顶,是否锁定,创建时间,更新时间,最后活动时间");
+            for (ForumThread thread : forumThreadRepository.findAllForExport()) {
+                pw.println(String.join(",",
+                    String.valueOf(thread.getId()),
+                    thread.getCategory() != null ? thread.getCategory().getId().toString() : "",
+                    thread.getAuthor() != null ? thread.getAuthor().getId().toString() : "",
+                    escapeCsv(thread.getTitle()),
+                    escapeCsv(thread.getBody()),
+                    String.valueOf(thread.getReplyCount()),
+                    String.valueOf(thread.getViewCount()),
+                    thread.isPinned() ? "1" : "0",
+                    thread.isLocked() ? "1" : "0",
+                    formatExportTime(thread.getCreatedAt(), formatter),
+                    formatExportTime(thread.getUpdatedAt(), formatter),
+                    formatExportTime(thread.getLastActivityAt(), formatter)
+                ));
+            }
+            pw.println();
+
+            pw.println("论坛回复数据");
+            pw.println("ID,帖子ID,父回复ID,作者ID,正文,创建时间,更新时间");
+            for (ForumReply reply : forumReplyRepository.findAllForExport()) {
+                pw.println(String.join(",",
+                    String.valueOf(reply.getId()),
+                    reply.getThread() != null ? reply.getThread().getId().toString() : "",
+                    reply.getParent() != null ? reply.getParent().getId().toString() : "",
+                    reply.getAuthor() != null ? reply.getAuthor().getId().toString() : "",
+                    escapeCsv(reply.getBody()),
+                    formatExportTime(reply.getCreatedAt(), formatter),
+                    formatExportTime(reply.getUpdatedAt(), formatter)
+                ));
+            }
+            pw.println();
+
         } catch (Exception e) {
             String errorMsg = "导出过程中发生错误: " + e.getMessage();
             pw.println(errorMsg);
@@ -319,6 +378,10 @@ public class DataExportService {
         }
 
         return sw.toString();
+    }
+
+    private String formatExportTime(java.time.LocalDateTime value, DateTimeFormatter formatter) {
+        return value != null ? value.format(formatter) : "";
     }
 
     private String escapeCsv(String value) {

@@ -45,8 +45,13 @@ export function Forum() {
   return (
     <div className="mx-auto max-w-2xl">
       <div className="mb-6 flex justify-end">
-        <Link to="/forum/new" className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-          {t('发帖', 'New thread')}
+        <Link
+          to="/forum/new"
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:opacity-90"
+          style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}
+        >
+          <i className="fa fa-pencil" />
+          <span>{t('发帖', 'New thread')}</span>
         </Link>
       </div>
 

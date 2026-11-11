@@ -1,12 +1,25 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useLanguage } from '../contexts/LanguageContext'
+
+const WEEKDAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+const WEEKDAYS_ZH = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
+
+function pad(value: number) {
+  return String(value).padStart(2, '0')
+}
 
 export function Footer() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [now, setNow] = useState(() => new Date())
   const navigate = useNavigate()
-  const { t } = useLanguage()
+  const { language, t } = useLanguage()
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const handleSearch = () => {
     if (query.trim()) {
@@ -16,27 +29,30 @@ export function Footer() {
     }
   }
 
+  const dateLine = `${now.getFullYear()}.${pad(now.getMonth() + 1)}.${pad(now.getDate())}`
+  const weekday = language === 'en' ? WEEKDAYS_EN[now.getDay()] : WEEKDAYS_ZH[now.getDay()]
+
   return (
     <>
-      <footer
-        className="footer-component py-8"
-        style={{
-          color: 'var(--text-primary)',
-        }}
-      >
-        <div className="container mx-auto px-4">
-          <div className="flex flex-col items-center space-y-4">
-            <div className="flex w-full items-center justify-end">
-              <button
-                onClick={() => setSearchOpen(true)}
-                className="flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 bg-white/10 hover:bg-white/20 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 touch-manipulation min-w-[44px] min-h-[44px]"
-                style={{ color: 'var(--text-primary)' }}
-                title={t('搜索', 'Search')}
-                aria-label={t('搜索', 'Search')}
-              >
-                <i className="fa fa-search text-xl sm:text-2xl" />
-              </button>
+      <footer className="footer-component" style={{ color: 'var(--text-primary)' }}>
+        <div className="container mx-auto px-4 sm:px-6">
+          <div className="footer-bar">
+            <div className="footer-dateblock">
+              <p className="footer-date">{dateLine}</p>
+              <p className={`footer-weekday${language === 'zh' ? ' is-zh' : ''}`}>{weekday}</p>
             </div>
+
+            <button
+              type="button"
+              onClick={() => setSearchOpen(true)}
+              className="ml-auto inline-flex items-center gap-1.5 self-center rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:opacity-90 touch-manipulation"
+              style={{ color: 'var(--text-primary)', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)' }}
+              title={t('搜索', 'Search')}
+              aria-label={t('搜索', 'Search')}
+            >
+              <i className="fa fa-search" />
+              <span>{t('搜索', 'Search')}</span>
+            </button>
           </div>
         </div>
       </footer>

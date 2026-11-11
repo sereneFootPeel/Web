@@ -123,7 +123,7 @@ public class AuthApiController {
             return ResponseEntity.ok(res);
         } catch (org.springframework.security.authentication.BadCredentialsException e) {
             res.put("success", false);
-            res.put("message", "用户名或密码错误");
+            res.put("message", "Incorrect username or password");
             return ResponseEntity.status(401).body(res);
         }
     }

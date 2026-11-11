@@ -151,18 +151,8 @@ export function ArchiveBackground() {
     const hemi = new THREE.HemisphereLight('#fffaf5', '#b4a18c', 0.65)
     scene.add(hemi)
     const shadeUniform = { value: 0 }
-    const restBackground = new THREE.Color('#eae5e1')
-    const darkBackground = new THREE.Color('#100e0d')
-    const restFloor = new THREE.Color('#d8c9b9')
-    const darkFloor = new THREE.Color('#161412')
-    const restShell = new THREE.Color('#fff7ed')
-    const darkShell = new THREE.Color('#2a2826')
-    const restCore = new THREE.Color('#f6eee4')
-    const darkCore = new THREE.Color('#161412')
     let shade = 0
-    let darkUntil = -1
-    let shellMaterial: THREE.MeshPhysicalMaterial | null = null
-    let innerMaterial: THREE.MeshStandardMaterial | null = null
+    let glowUntil = -1
     const key = new THREE.DirectionalLight('#fff7ed', 1.4)
     key.position.set(-6, 14, -5)
     key.castShadow = true
@@ -359,32 +349,16 @@ export function ArchiveBackground() {
       const newest = covers[covers.length - 1]
       if (newest && newest.spread >= 1 && covers.length > 1) covers.splice(0, covers.length - 1)
       place(time)
-      const wantDark = time < darkUntil ? 1 : 0
-      const shadeRate = wantDark > shade ? 2.8 : 1.35
-      shade += (wantDark - shade) * (1 - Math.exp(-shadeRate * dt))
+      const wantGlow = time < glowUntil ? 1 : 0
+      const shadeRate = wantGlow > shade ? 2.8 : 1.35
+      shade += (wantGlow - shade) * (1 - Math.exp(-shadeRate * dt))
       shadeUniform.value = shade
-      const background = scene.background as THREE.Color
-      background.copy(restBackground).lerp(darkBackground, shade)
-      fog.color.copy(background)
-      renderer.toneMappingExposure = 1.05 - 0.22 * shade
-      scene.environmentIntensity = 0.48 - 0.26 * shade
-      hemi.intensity = 0.65 - 0.28 * shade
-      key.intensity = 1.4 - 0.62 * shade
-      fill.intensity = 0.6 - 0.28 * shade
-      floorMaterial.color.copy(restFloor).lerp(darkFloor, shade)
       redLight.intensity = shade * 2.8
-      if (shellMaterial && innerMaterial) {
-        shellMaterial.color.copy(restShell).lerp(darkShell, shade)
-        shellMaterial.transmission = 0.78 * (1 - shade) + 0.02 * shade
-        shellMaterial.envMapIntensity = 0.6 * (1 - shade) + 0.08 * shade
-        innerMaterial.color.copy(restCore).lerp(darkCore, shade)
-        innerMaterial.envMapIntensity = 0.45 * (1 - shade) + 0.05 * shade
-      }
       renderer.render(scene, camera)
     }
 
     const stopDenied = onDenied(() => {
-      darkUntil = (performance.now() - started) / 1000 + 3.2
+      glowUntil = (performance.now() - started) / 1000 + 3.2
     })
 
     resize()
@@ -400,7 +374,6 @@ export function ArchiveBackground() {
       metalness: 0,
       envMapIntensity: 0.45,
     })
-    innerMaterial = coreMaterial
     tintByHeight(coreMaterial)
     const core = new THREE.InstancedMesh(coreGeometry, coreMaterial, cells.length)
     core.frustumCulled = false
@@ -426,7 +399,6 @@ export function ArchiveBackground() {
       clearcoatRoughness: 0.25,
       envMapIntensity: 0.6,
     })
-    shellMaterial = keyMaterial
     tintByHeight(keyMaterial)
 
     const glowHeight = 3.2

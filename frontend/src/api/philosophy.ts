@@ -132,20 +132,33 @@ export type SearchContentItem = {
   } | null
 }
 
+export type SearchThreadItem = {
+  id: number
+  title: string
+  excerpt?: string
+  replyCount: number
+  pinned?: boolean
+  locked?: boolean
+  lastActivityAt?: string | null
+  user?: { id: number; username: string } | null
+}
+
 export type SearchSummaryResponse = {
   success: boolean
   query: string
   philosophers: SearchPhilosopherItem[]
   schools: SearchSchoolItem[]
   contents: SearchContentItem[]
+  threads?: SearchThreadItem[]
   previewLimit: number
   philosopherTotalCount: number
   schoolTotalCount: number
   contentTotalCount: number
+  threadTotalCount?: number
   totalResults: number
 }
 
-export type SearchCategory = 'philosophers' | 'schools' | 'contents'
+export type SearchCategory = 'philosophers' | 'schools' | 'contents' | 'threads'
 
 export type SearchPagedResponse<T> = {
   success: boolean

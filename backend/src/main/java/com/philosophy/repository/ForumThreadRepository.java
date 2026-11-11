@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface ForumThreadRepository extends JpaRepository<ForumThread, Long> {
@@ -16,18 +17,23 @@ public interface ForumThreadRepository extends JpaRepository<ForumThread, Long> 
     @Query(
             value = "SELECT t FROM ForumThread t JOIN FETCH t.author JOIN FETCH t.category " +
                     "WHERE (:categoryId IS NULL OR t.category.id = :categoryId) " +
-                    "AND (:keyword IS NULL OR LOWER(t.title) LIKE LOWER(CONCAT('%', :keyword, '%')) ESCAPE '\\' " +
-                    "OR LOWER(t.body) LIKE LOWER(CONCAT('%', :keyword, '%')) ESCAPE '\\') " +
                     "ORDER BY t.pinned DESC, t.lastActivityAt DESC, t.id DESC",
             countQuery = "SELECT COUNT(t) FROM ForumThread t " +
-                    "WHERE (:categoryId IS NULL OR t.category.id = :categoryId) " +
-                    "AND (:keyword IS NULL OR LOWER(t.title) LIKE LOWER(CONCAT('%', :keyword, '%')) ESCAPE '\\' " +
-                    "OR LOWER(t.body) LIKE LOWER(CONCAT('%', :keyword, '%')) ESCAPE '\\')"
+                    "WHERE (:categoryId IS NULL OR t.category.id = :categoryId)"
     )
-    Page<ForumThread> search(@Param("categoryId") Long categoryId, @Param("keyword") String keyword, Pageable pageable);
+    Page<ForumThread> findPage(@Param("categoryId") Long categoryId, Pageable pageable);
+
+    @Query("SELECT t FROM ForumThread t JOIN FETCH t.author JOIN FETCH t.category " +
+            "WHERE LOWER(t.title) LIKE LOWER(CONCAT('%', :keyword, '%')) ESCAPE '\\' " +
+            "OR LOWER(t.body) LIKE LOWER(CONCAT('%', :keyword, '%')) ESCAPE '\\' " +
+            "ORDER BY t.pinned DESC, t.lastActivityAt DESC, t.id DESC")
+    List<ForumThread> searchByKeyword(@Param("keyword") String keyword);
 
     @Query("SELECT t FROM ForumThread t JOIN FETCH t.author JOIN FETCH t.category WHERE t.id = :id")
     Optional<ForumThread> findDetailedById(@Param("id") Long id);
+
+    @Query("SELECT t FROM ForumThread t JOIN FETCH t.author JOIN FETCH t.category ORDER BY t.id ASC")
+    List<ForumThread> findAllForExport();
 
     @Modifying
     @Query("UPDATE ForumThread t SET t.viewCount = t.viewCount + 1 WHERE t.id = :id")
