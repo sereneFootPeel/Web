@@ -29,6 +29,7 @@ public class AdminAccountInitializer implements ApplicationRunner {
         // 在应用启动时自动创建或更新管理员账户
         logger.info("初始化管理员账户...");
         createOrUpdateAdminAccount();
+        demoteModerators();
         logger.info("管理员账户初始化完成");
     }
 
@@ -43,7 +44,6 @@ public class AdminAccountInitializer implements ApplicationRunner {
             admin.setRole("ADMIN");
             admin.setEnabled(true);
             admin.setAdminLoginAttempts(0);
-            admin.setProfilePrivate(false);
             admin.setLikeCount(0);
             // 设置初始密码为 000000
             admin.setPassword(passwordEncoder.encode("000000"));
@@ -53,5 +53,18 @@ public class AdminAccountInitializer implements ApplicationRunner {
             // 如果管理员账户已存在，则不做修改
             logger.info("管理员账户已存在，跳过创建和密码重置");
         }
+    }
+
+    private void demoteModerators() {
+        var moderators = userRepository.findByRole("MODERATOR");
+        if (moderators.isEmpty()) {
+            return;
+        }
+        for (User moderator : moderators) {
+            moderator.setRole("USER");
+            moderator.setAssignedSchoolId(null);
+        }
+        userRepository.saveAll(moderators);
+        logger.info("已将 {} 个版主账号降为普通用户", moderators.size());
     }
 }

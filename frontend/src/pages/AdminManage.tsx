@@ -309,7 +309,6 @@ export function AdminManage() {
 
   function roleLabel(role: string) {
     if (role === 'ADMIN') return t('管理员', 'Admin')
-    if (role === 'MODERATOR') return t('版主', 'Moderator')
     return t('用户', 'User')
   }
 
@@ -675,9 +674,8 @@ export function AdminManage() {
             <h2 className="font-semibold">{userForm.id ? t('编辑用户', 'Edit user') : t('新增用户', 'New user')}</h2>
             <input className="w-full border rounded p-2" placeholder={t('用户名', 'Username')} value={userForm.username} onChange={(e) => setUserForm((v) => ({ ...v, username: e.target.value }))} required />
             <input className="w-full border rounded p-2" placeholder={t('邮箱', 'Email')} value={userForm.email} onChange={(e) => setUserForm((v) => ({ ...v, email: e.target.value }))} required />
-            <select className="w-full border rounded p-2" value={userForm.role} onChange={(e) => setUserForm((v) => ({ ...v, role: e.target.value }))}>
+            <select className="w-full border rounded p-2" value={userForm.role === 'ADMIN' ? 'ADMIN' : 'USER'} onChange={(e) => setUserForm((v) => ({ ...v, role: e.target.value }))}>
               <option value="USER">{t('用户', 'User')}</option>
-              <option value="MODERATOR">{t('版主', 'Moderator')}</option>
               <option value="ADMIN">{t('管理员', 'Admin')}</option>
             </select>
             <label className="flex items-center gap-2 text-sm">

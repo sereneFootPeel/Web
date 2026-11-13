@@ -1,12 +1,10 @@
 package com.philosophy.controller;
 
 import com.philosophy.model.Comment;
-import com.philosophy.model.Content;
 import com.philosophy.model.School;
 import com.philosophy.model.User;
 import com.philosophy.model.UserContentEdit;
 import com.philosophy.service.CommentService;
-import com.philosophy.service.ContentService;
 import com.philosophy.service.SchoolService;
 import com.philosophy.service.TranslationService;
 import com.philosophy.service.UserContentEditService;
@@ -28,7 +26,6 @@ public class UserProfileController {
     private final UserService userService;
     private final CommentService commentService;
     private final TranslationService translationService;
-    private final ContentService contentService;
     private final UserContentEditService userContentEditService;
     private final SchoolService schoolService;
     private final LanguageUtil languageUtil;
@@ -36,14 +33,12 @@ public class UserProfileController {
     public UserProfileController(UserService userService,
                                  CommentService commentService,
                                  TranslationService translationService,
-                                 ContentService contentService,
                                  UserContentEditService userContentEditService,
                                  SchoolService schoolService,
                                  LanguageUtil languageUtil) {
         this.userService = userService;
         this.commentService = commentService;
         this.translationService = translationService;
-        this.contentService = contentService;
         this.userContentEditService = userContentEditService;
         this.schoolService = schoolService;
         this.languageUtil = languageUtil;
@@ -59,27 +54,15 @@ public class UserProfileController {
 
         String language = languageUtil.getLanguage(request);
 
-        User currentUser = null;
-        if (authentication != null && authentication.isAuthenticated()) {
-            currentUser = userService.findByUsername(authentication.getName());
-        }
-
         boolean isAdmin = authentication != null && authentication.isAuthenticated() &&
                 authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
         boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);
 
-        List<Comment> comments = commentService.findByUserIdWithPrivacyFilter(id, currentUser);
+        List<Comment> comments = commentService.findByUserId(id);
         long commentCount = commentService.countByUserId(id);
 
         List<UserContentEdit> userEdits = userContentEditService.getUserEdits(id, org.springframework.data.domain.PageRequest.of(0, 20)).getContent();
         long userEditCount = userContentEditService.getUserEditCount(id);
-
-        List<Content> moderatorContents = null;
-        long moderatorContentCount = 0;
-        if (user.getRole() != null && user.getRole().equals("MODERATOR")) {
-            moderatorContents = contentService.getContentsByUserId(id);
-            moderatorContentCount = contentService.countContentsByUserId(id);
-        }
 
         List<School> allSchools = schoolService.getAllSchools();
 
@@ -88,8 +71,6 @@ public class UserProfileController {
         model.addAttribute("commentCount", commentCount);
         model.addAttribute("userEdits", userEdits);
         model.addAttribute("userEditCount", userEditCount);
-        model.addAttribute("moderatorContents", moderatorContents);
-        model.addAttribute("moderatorContentCount", moderatorContentCount);
         model.addAttribute("isAdmin", isAdmin);
         model.addAttribute("allSchools", allSchools);
         model.addAttribute("language", language);

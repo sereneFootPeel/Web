@@ -1,5 +1,5 @@
 -- Runtime schema maintenance.
--- History and psychological-test modules have been removed.
+-- History, psychological-test, and user-follow modules have been removed.
 -- Drop their tables and columns on startup, and keep philosopher image columns.
 
 SET @contents_drop_history_country_fk_sql := (
@@ -83,6 +83,216 @@ DROP TABLE IF EXISTS history_event;
 DROP TABLE IF EXISTS history_country_school_scope;
 DROP TABLE IF EXISTS history_country;
 DROP TABLE IF EXISTS test_results;
+DROP TABLE IF EXISTS user_blocks;
+DROP TABLE IF EXISTS user_follows;
+
+-- Privacy and block columns are no longer used.
+SET @contents_privacy_fk := (
+    SELECT CONSTRAINT_NAME
+    FROM information_schema.KEY_COLUMN_USAGE
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'contents'
+      AND COLUMN_NAME = 'privacy_set_by'
+      AND REFERENCED_TABLE_NAME IS NOT NULL
+    LIMIT 1
+);
+SET @contents_drop_privacy_fk_sql := IF(
+    @contents_privacy_fk IS NULL,
+    'SELECT 1',
+    CONCAT('ALTER TABLE contents DROP FOREIGN KEY `', @contents_privacy_fk, '`')
+);
+PREPARE contents_drop_privacy_fk_stmt FROM @contents_drop_privacy_fk_sql;
+EXECUTE contents_drop_privacy_fk_stmt;
+DEALLOCATE PREPARE contents_drop_privacy_fk_stmt;
+
+SET @contents_blocked_fk := (
+    SELECT CONSTRAINT_NAME
+    FROM information_schema.KEY_COLUMN_USAGE
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'contents'
+      AND COLUMN_NAME = 'blocked_by'
+      AND REFERENCED_TABLE_NAME IS NOT NULL
+    LIMIT 1
+);
+SET @contents_drop_blocked_fk_sql := IF(
+    @contents_blocked_fk IS NULL,
+    'SELECT 1',
+    CONCAT('ALTER TABLE contents DROP FOREIGN KEY `', @contents_blocked_fk, '`')
+);
+PREPARE contents_drop_blocked_fk_stmt FROM @contents_drop_blocked_fk_sql;
+EXECUTE contents_drop_blocked_fk_stmt;
+DEALLOCATE PREPARE contents_drop_blocked_fk_stmt;
+
+SET @comments_privacy_fk := (
+    SELECT CONSTRAINT_NAME
+    FROM information_schema.KEY_COLUMN_USAGE
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'comments'
+      AND COLUMN_NAME = 'privacy_set_by'
+      AND REFERENCED_TABLE_NAME IS NOT NULL
+    LIMIT 1
+);
+SET @comments_drop_privacy_fk_sql := IF(
+    @comments_privacy_fk IS NULL,
+    'SELECT 1',
+    CONCAT('ALTER TABLE comments DROP FOREIGN KEY `', @comments_privacy_fk, '`')
+);
+PREPARE comments_drop_privacy_fk_stmt FROM @comments_drop_privacy_fk_sql;
+EXECUTE comments_drop_privacy_fk_stmt;
+DEALLOCATE PREPARE comments_drop_privacy_fk_stmt;
+
+SET @comments_blocked_fk := (
+    SELECT CONSTRAINT_NAME
+    FROM information_schema.KEY_COLUMN_USAGE
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'comments'
+      AND COLUMN_NAME = 'blocked_by'
+      AND REFERENCED_TABLE_NAME IS NOT NULL
+    LIMIT 1
+);
+SET @comments_drop_blocked_fk_sql := IF(
+    @comments_blocked_fk IS NULL,
+    'SELECT 1',
+    CONCAT('ALTER TABLE comments DROP FOREIGN KEY `', @comments_blocked_fk, '`')
+);
+PREPARE comments_drop_blocked_fk_stmt FROM @comments_drop_blocked_fk_sql;
+EXECUTE comments_drop_blocked_fk_stmt;
+DEALLOCATE PREPARE comments_drop_blocked_fk_stmt;
+
+SET @drop_contents_is_private_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE contents DROP COLUMN is_private', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contents' AND COLUMN_NAME = 'is_private'
+);
+PREPARE drop_contents_is_private_stmt FROM @drop_contents_is_private_sql;
+EXECUTE drop_contents_is_private_stmt;
+DEALLOCATE PREPARE drop_contents_is_private_stmt;
+
+SET @drop_contents_privacy_set_by_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE contents DROP COLUMN privacy_set_by', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contents' AND COLUMN_NAME = 'privacy_set_by'
+);
+PREPARE drop_contents_privacy_set_by_stmt FROM @drop_contents_privacy_set_by_sql;
+EXECUTE drop_contents_privacy_set_by_stmt;
+DEALLOCATE PREPARE drop_contents_privacy_set_by_stmt;
+
+SET @drop_contents_privacy_set_at_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE contents DROP COLUMN privacy_set_at', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contents' AND COLUMN_NAME = 'privacy_set_at'
+);
+PREPARE drop_contents_privacy_set_at_stmt FROM @drop_contents_privacy_set_at_sql;
+EXECUTE drop_contents_privacy_set_at_stmt;
+DEALLOCATE PREPARE drop_contents_privacy_set_at_stmt;
+
+SET @drop_contents_is_blocked_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE contents DROP COLUMN is_blocked', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contents' AND COLUMN_NAME = 'is_blocked'
+);
+PREPARE drop_contents_is_blocked_stmt FROM @drop_contents_is_blocked_sql;
+EXECUTE drop_contents_is_blocked_stmt;
+DEALLOCATE PREPARE drop_contents_is_blocked_stmt;
+
+SET @drop_contents_blocked_by_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE contents DROP COLUMN blocked_by', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contents' AND COLUMN_NAME = 'blocked_by'
+);
+PREPARE drop_contents_blocked_by_stmt FROM @drop_contents_blocked_by_sql;
+EXECUTE drop_contents_blocked_by_stmt;
+DEALLOCATE PREPARE drop_contents_blocked_by_stmt;
+
+SET @drop_contents_blocked_at_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE contents DROP COLUMN blocked_at', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'contents' AND COLUMN_NAME = 'blocked_at'
+);
+PREPARE drop_contents_blocked_at_stmt FROM @drop_contents_blocked_at_sql;
+EXECUTE drop_contents_blocked_at_stmt;
+DEALLOCATE PREPARE drop_contents_blocked_at_stmt;
+
+SET @drop_comments_is_private_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE comments DROP COLUMN is_private', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'comments' AND COLUMN_NAME = 'is_private'
+);
+PREPARE drop_comments_is_private_stmt FROM @drop_comments_is_private_sql;
+EXECUTE drop_comments_is_private_stmt;
+DEALLOCATE PREPARE drop_comments_is_private_stmt;
+
+SET @drop_comments_privacy_set_by_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE comments DROP COLUMN privacy_set_by', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'comments' AND COLUMN_NAME = 'privacy_set_by'
+);
+PREPARE drop_comments_privacy_set_by_stmt FROM @drop_comments_privacy_set_by_sql;
+EXECUTE drop_comments_privacy_set_by_stmt;
+DEALLOCATE PREPARE drop_comments_privacy_set_by_stmt;
+
+SET @drop_comments_privacy_set_at_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE comments DROP COLUMN privacy_set_at', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'comments' AND COLUMN_NAME = 'privacy_set_at'
+);
+PREPARE drop_comments_privacy_set_at_stmt FROM @drop_comments_privacy_set_at_sql;
+EXECUTE drop_comments_privacy_set_at_stmt;
+DEALLOCATE PREPARE drop_comments_privacy_set_at_stmt;
+
+SET @drop_comments_is_blocked_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE comments DROP COLUMN is_blocked', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'comments' AND COLUMN_NAME = 'is_blocked'
+);
+PREPARE drop_comments_is_blocked_stmt FROM @drop_comments_is_blocked_sql;
+EXECUTE drop_comments_is_blocked_stmt;
+DEALLOCATE PREPARE drop_comments_is_blocked_stmt;
+
+SET @drop_comments_blocked_by_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE comments DROP COLUMN blocked_by', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'comments' AND COLUMN_NAME = 'blocked_by'
+);
+PREPARE drop_comments_blocked_by_stmt FROM @drop_comments_blocked_by_sql;
+EXECUTE drop_comments_blocked_by_stmt;
+DEALLOCATE PREPARE drop_comments_blocked_by_stmt;
+
+SET @drop_comments_blocked_at_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE comments DROP COLUMN blocked_at', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'comments' AND COLUMN_NAME = 'blocked_at'
+);
+PREPARE drop_comments_blocked_at_stmt FROM @drop_comments_blocked_at_sql;
+EXECUTE drop_comments_blocked_at_stmt;
+DEALLOCATE PREPARE drop_comments_blocked_at_stmt;
+
+SET @drop_users_profile_private_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE users DROP COLUMN profile_private', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'profile_private'
+);
+PREPARE drop_users_profile_private_stmt FROM @drop_users_profile_private_sql;
+EXECUTE drop_users_profile_private_stmt;
+DEALLOCATE PREPARE drop_users_profile_private_stmt;
+
+SET @drop_users_comments_private_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE users DROP COLUMN comments_private', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'comments_private'
+);
+PREPARE drop_users_comments_private_stmt FROM @drop_users_comments_private_sql;
+EXECUTE drop_users_comments_private_stmt;
+DEALLOCATE PREPARE drop_users_comments_private_stmt;
+
+SET @drop_users_contents_private_sql := (
+    SELECT IF(COUNT(*) > 0, 'ALTER TABLE users DROP COLUMN contents_private', 'SELECT 1')
+    FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'contents_private'
+);
+PREPARE drop_users_contents_private_stmt FROM @drop_users_contents_private_sql;
+EXECUTE drop_users_contents_private_stmt;
+DEALLOCATE PREPARE drop_users_contents_private_stmt;
 
 SET @philosophers_has_image_data := (
     SELECT COUNT(*)

@@ -3,18 +3,14 @@ package com.philosophy.service;
 import com.philosophy.model.User;
 import com.philosophy.model.Comment;
 import com.philosophy.model.Content;
-import com.philosophy.model.UserFollow;
 import com.philosophy.model.Like;
 import com.philosophy.model.UserContentEdit;
-import com.philosophy.model.UserBlock;
 import com.philosophy.model.Philosopher;
 import com.philosophy.repository.UserRepository;
 import com.philosophy.repository.CommentRepository;
 import com.philosophy.repository.ContentRepository;
-import com.philosophy.repository.UserFollowRepository;
 import com.philosophy.repository.LikeRepository;
 import com.philosophy.repository.UserContentEditRepository;
-import com.philosophy.repository.UserBlockRepository;
 import com.philosophy.repository.PhilosopherRepository;
 import com.philosophy.util.SearchNormalizer;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -33,26 +29,21 @@ public class UserService implements UserDetailsService {
     private final PasswordEncoder passwordEncoder;
     private final CommentRepository commentRepository;
     private final ContentRepository contentRepository;
-    private final UserFollowRepository userFollowRepository;
     private final LikeRepository likeRepository;
     private final UserContentEditRepository userContentEditRepository;
-    private final UserBlockRepository userBlockRepository;
     private final PhilosopherRepository philosopherRepository;
     
     public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder, 
                       CommentRepository commentRepository,
-                      ContentRepository contentRepository, UserFollowRepository userFollowRepository,
+                      ContentRepository contentRepository,
                       LikeRepository likeRepository, UserContentEditRepository userContentEditRepository,
-                      UserBlockRepository userBlockRepository,
                       PhilosopherRepository philosopherRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.commentRepository = commentRepository;
         this.contentRepository = contentRepository;
-        this.userFollowRepository = userFollowRepository;
         this.likeRepository = likeRepository;
         this.userContentEditRepository = userContentEditRepository;
-        this.userBlockRepository = userBlockRepository;
         this.philosopherRepository = philosopherRepository;
     }
 
@@ -141,41 +132,18 @@ public class UserService implements UserDetailsService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with id: " + id));
         
-        // 1. 处理Comment表中的外键约束
-        // 需要处理以下外键字段：user_id, privacy_set_by, blocked_by
-        
-        // 2.1 删除用户创建的所有评论
+        // 1. 删除用户创建的评论和内容
         List<Comment> userComments = commentRepository.findByUserIdWithContent(id);
         if (!userComments.isEmpty()) {
             commentRepository.deleteAll(userComments);
         }
         
-        // 2.2 处理用户设置隐私的评论 - 重置隐私设置者
-        List<Comment> privacySetComments = commentRepository.findByPrivacySetByUserId(id);
-        for (Comment comment : privacySetComments) {
-            comment.setPrivacySetBy(null);
-            comment.setPrivacySetAt(null);
-            commentRepository.save(comment);
-        }
-        
-        // 2.3 处理用户封禁的评论 - 解除封禁
-        List<Comment> blockedComments = commentRepository.findByBlockedByUserId(id);
-        for (Comment comment : blockedComments) {
-            comment.setBlockedBy(null);
-            comment.setBlockedAt(null);
-            comment.setBlocked(false);
-            commentRepository.save(comment);
-        }
-        
-        // 2. 处理Content表中的外键约束
-        // 需要处理以下外键字段：user_id, locked_by_user_id, privacy_set_by, blocked_by
         List<Content> userContents = contentRepository.findByUserId(id);
         if (!userContents.isEmpty()) {
-            // 删除用户创建的所有内容
             contentRepository.deleteAll(userContents);
         }
         
-        // 3. 处理用户锁定的内容 - 解除锁定
+        // 解除该用户锁定的内容
         List<Content> lockedContents = contentRepository.findByLockedByUserId(id);
         for (Content content : lockedContents) {
             content.setLockedByUser(null);
@@ -184,30 +152,7 @@ public class UserService implements UserDetailsService {
             contentRepository.save(content);
         }
         
-        // 5. 处理用户设置隐私的内容 - 重置为默认用户或系统
-        List<Content> privacySetContents = contentRepository.findByPrivacySetByUserId(id);
-        for (Content content : privacySetContents) {
-            content.setPrivacySetBy(null);
-            content.setPrivacySetAt(null);
-            contentRepository.save(content);
-        }
-        
-        // 6. 处理用户封禁的内容 - 解除封禁
-        List<Content> blockedContents = contentRepository.findByBlockedByUserId(id);
-        for (Content content : blockedContents) {
-            content.setBlockedBy(null);
-            content.setBlockedAt(null);
-            content.setBlocked(false);
-            contentRepository.save(content);
-        }
-        
-        // 7. 删除用户关注关系
-        List<UserFollow> userFollows = userFollowRepository.findByFollowerIdOrFollowingId(id, id);
-        if (!userFollows.isEmpty()) {
-            userFollowRepository.deleteAll(userFollows);
-        }
-        
-        // 8. 删除用户的点赞记录
+        // 删除用户的点赞记录
         List<Like> userLikes = likeRepository.findByUserId(id);
         if (!userLikes.isEmpty()) {
             likeRepository.deleteAll(userLikes);
@@ -219,13 +164,7 @@ public class UserService implements UserDetailsService {
             userContentEditRepository.deleteAll(userContentEdits);
         }
         
-        // 10. 删除用户的封禁记录
-        List<UserBlock> userBlocks = userBlockRepository.findByUserIdOrBlockedUserId(id, id);
-        if (!userBlocks.isEmpty()) {
-            userBlockRepository.deleteAll(userBlocks);
-        }
-        
-        // 11. 处理Philosopher表中的外键约束 - 重置user_id为null
+        // 处理Philosopher表中的外键约束 - 重置user_id为null
         List<Philosopher> userPhilosophers = philosopherRepository.findByUserId(id);
         for (Philosopher philosopher : userPhilosophers) {
             philosopher.setUser(null);

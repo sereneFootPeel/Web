@@ -52,21 +52,28 @@ function createKeyGeometry(inset = 0) {
   return geometry
 }
 
-function tintByHeight(material: THREE.Material) {
+function tintByHeight(material: THREE.Material, shade: { value: number }) {
   material.onBeforeCompile = (shader: {
     vertexShader: string
     fragmentShader: string
     uniforms: Record<string, { value: unknown }>
   }) => {
+    shader.uniforms.uShade = shade
     shader.vertexShader = `varying float vPanelHeight;\n${shader.vertexShader}`
     shader.vertexShader = shader.vertexShader.replace(
       '#include <begin_vertex>',
       '#include <begin_vertex>\nvPanelHeight = position.y / 3.7;',
     )
-    shader.fragmentShader = `varying float vPanelHeight;\n${shader.fragmentShader}`
+    shader.fragmentShader = `uniform float uShade;\nvarying float vPanelHeight;\n${shader.fragmentShader}`
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
       '#include <color_fragment>\ndiffuseColor.rgb *= mix(vec3(0.68, 0.56, 0.44), vec3(1.0, 0.98, 0.94), smoothstep(0.1, 1.0, vPanelHeight));',
+    )
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <emissivemap_fragment>',
+      `#include <emissivemap_fragment>
+       float fromBelow = pow(1.0 - clamp(vPanelHeight, 0.0, 1.0), 1.85);
+       totalEmissiveRadiance += vec3(1.15, 0.18, 0.07) * uShade * fromBelow;`,
     )
   }
 }
@@ -153,6 +160,16 @@ export function ArchiveBackground() {
     const shadeUniform = { value: 0 }
     let shade = 0
     let glowUntil = -1
+    const restBackground = new THREE.Color('#eae5e1')
+    const darkBackground = new THREE.Color('#4a3834')
+    const restFloor = new THREE.Color('#d8c9b9')
+    const darkFloor = new THREE.Color('#3e302c')
+    const hemiSkyRest = new THREE.Color('#fffaf5')
+    const dimSky = new THREE.Color('#6e5c54')
+    const hemiGroundRest = new THREE.Color('#b4a18c')
+    const underRed = new THREE.Color('#c44738')
+    let coreMaterial: THREE.MeshStandardMaterial | null = null
+    let keyMaterial: THREE.MeshPhysicalMaterial | null = null
     const key = new THREE.DirectionalLight('#fff7ed', 1.4)
     key.position.set(-6, 14, -5)
     key.castShadow = true
@@ -353,7 +370,20 @@ export function ArchiveBackground() {
       const shadeRate = wantGlow > shade ? 2.8 : 1.35
       shade += (wantGlow - shade) * (1 - Math.exp(-shadeRate * dt))
       shadeUniform.value = shade
-      redLight.intensity = shade * 2.8
+      redLight.intensity = shade * 1.8
+      const overhead = 1 - shade * 0.82
+      const background = scene.background
+      if (background instanceof THREE.Color) background.copy(restBackground).lerp(darkBackground, shade * 0.78)
+      fog.color.copy(restBackground).lerp(darkBackground, shade * 0.78)
+      floorMaterial.color.copy(restFloor).lerp(darkFloor, shade * 0.78)
+      hemi.color.copy(hemiSkyRest).lerp(dimSky, shade)
+      hemi.groundColor.copy(hemiGroundRest).lerp(underRed, shade)
+      hemi.intensity = 0.65 * overhead
+      key.intensity = 1.4 * overhead
+      fill.intensity = 0.6 * overhead
+      scene.environmentIntensity = 0.48 * overhead
+      if (coreMaterial) coreMaterial.envMapIntensity = 0.45 * overhead
+      if (keyMaterial) keyMaterial.envMapIntensity = 0.6 * overhead
       renderer.render(scene, camera)
     }
 
@@ -368,13 +398,13 @@ export function ArchiveBackground() {
 
     const shellInset = 0.045
     const coreGeometry = createKeyGeometry(shellInset)
-    const coreMaterial = new THREE.MeshStandardMaterial({
+    coreMaterial = new THREE.MeshStandardMaterial({
       color: '#f6eee4',
       roughness: 0.55,
       metalness: 0,
       envMapIntensity: 0.45,
     })
-    tintByHeight(coreMaterial)
+    tintByHeight(coreMaterial, shadeUniform)
     const core = new THREE.InstancedMesh(coreGeometry, coreMaterial, cells.length)
     core.frustumCulled = false
     core.castShadow = false
@@ -385,7 +415,7 @@ export function ArchiveBackground() {
     scene.add(core)
 
     const keyGeometry = createKeyGeometry()
-    const keyMaterial = new THREE.MeshPhysicalMaterial({
+    keyMaterial = new THREE.MeshPhysicalMaterial({
       color: '#fff7ed',
       roughness: 0.28,
       metalness: 0,
@@ -399,7 +429,7 @@ export function ArchiveBackground() {
       clearcoatRoughness: 0.25,
       envMapIntensity: 0.6,
     })
-    tintByHeight(keyMaterial)
+    tintByHeight(keyMaterial, shadeUniform)
 
     const glowHeight = 3.2
     const laneSpan = (LANES[LANES.length - 1] - LANES[0]) * COLUMN_SPACING + KEY_LENGTH
@@ -422,12 +452,12 @@ export function ArchiveBackground() {
       shader.vertexShader = `varying float vGlow;\n${shader.vertexShader}`
       shader.vertexShader = shader.vertexShader.replace(
         '#include <begin_vertex>',
-        `#include <begin_vertex>\nvGlow = clamp(0.5 - position.y / ${glowHeight.toFixed(2)}, 0.0, 1.0);`,
+        `#include <begin_vertex>\nvGlow = pow(clamp(0.5 - position.y / ${glowHeight.toFixed(2)}, 0.0, 1.0), 1.65);`,
       )
       shader.fragmentShader = `uniform float uShade;\nvarying float vGlow;\n${shader.fragmentShader}`
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <color_fragment>',
-        '#include <color_fragment>\ndiffuseColor.a *= uShade * vGlow;',
+        '#include <color_fragment>\ndiffuseColor.a *= uShade * vGlow * 0.72;',
       )
     }
     const gapCount = ROW_END - ROW_START

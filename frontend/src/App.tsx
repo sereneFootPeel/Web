@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Layout } from './components/Layout'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { Home } from './pages/Home'
-import { Quotes } from './pages/Quotes'
 import { Philosophers } from './pages/Philosophers'
 import { Schools } from './pages/Schools'
 import { Search } from './pages/Search'
@@ -21,7 +20,6 @@ export function App() {
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<Home />} />
-          <Route path="quotes" element={<Quotes />} />
           <Route path="philosophers" element={<Philosophers />} />
           <Route path="schools" element={<Schools />} />
           <Route path="search" element={<Search />} />

@@ -399,7 +399,7 @@ public class PhilosopherService {
 
     /**
      * 获取指定哲学家的内容，按用户角色优先级排序
-     * 优先级：管理员和版主的内容优先，如果没有则显示用户写的点赞最多的内容
+     * 优先级：管理员的内容优先，如果没有则显示用户写的点赞最多的内容
      */
     @Transactional(readOnly = true)
     public List<Content> getContentsByPhilosopherIdWithPriority(Long philosopherId) {
@@ -407,7 +407,7 @@ public class PhilosopherService {
             // 获取该哲学家的所有内容（包括流派信息）
             List<Content> allContents = contentRepository.findByPhilosopherIdWithSchool(philosopherId);
 
-            // 分离管理员/版主内容和用户内容
+            // 分离管理员内容和用户内容
             List<Content> adminModeratorContents = new ArrayList<>();
             List<Content> userContents = new ArrayList<>();
 
@@ -419,7 +419,7 @@ public class PhilosopherService {
                 }
             }
 
-            // 对管理员/版主内容按角色优先级和点赞数排序
+            // 对管理员内容按角色优先级和点赞数排序
             adminModeratorContents.sort((c1, c2) -> {
                 int priority1 = getUserPriority(c1.getUser());
                 int priority2 = getUserPriority(c2.getUser());
@@ -433,7 +433,7 @@ public class PhilosopherService {
             // 对用户内容按点赞数降序排序
             userContents.sort((c1, c2) -> Integer.compare(c2.getLikeCount(), c1.getLikeCount()));
 
-            // 合并结果：先显示管理员/版主内容，再显示用户内容
+            // 合并结果：先显示管理员内容，再显示用户内容
             List<Content> result = new ArrayList<>();
             result.addAll(adminModeratorContents);
             result.addAll(userContents);
@@ -447,7 +447,7 @@ public class PhilosopherService {
 
     /**
      * 获取指定哲学家的内容（分页版本），按用户角色优先级排序 - 用于哲学家页面的无限滚动
-     * 优先级：管理员和版主的内容优先，如果没有则显示用户写的点赞最多的内容
+     * 优先级：管理员的内容优先，如果没有则显示用户写的点赞最多的内容
      * @param philosopherId 哲学家ID
      * @param page 页码（从0开始）
      * @param size 每页大小
@@ -484,31 +484,19 @@ public class PhilosopherService {
 
     /**
      * 获取用户角色优先级
-     * ADMIN = 1, MODERATOR = 2, 其他 = 3
+     * ADMIN = 1, 其他 = 2
      */
     private int getUserPriority(com.philosophy.model.User user) {
         if (user == null) {
-            return 3; // 没有用户的默认为最低优先级
-        }
-
-        String role = user.getRole();
-        if ("ADMIN".equals(role)) {
-            return 1;
-        } else if ("MODERATOR".equals(role)) {
             return 2;
-        } else {
-            return 3;
         }
+        return "ADMIN".equals(user.getRole()) ? 1 : 2;
     }
 
     /**
-     * 判断用户是否为管理员或版主
+     * 判断用户是否为管理员
      */
     private boolean isAdminOrModerator(com.philosophy.model.User user) {
-        if (user == null) {
-            return false;
-        }
-        String role = user.getRole();
-        return "ADMIN".equals(role) || "MODERATOR".equals(role);
+        return user != null && "ADMIN".equals(user.getRole());
     }
 }

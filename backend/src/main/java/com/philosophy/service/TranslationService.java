@@ -514,10 +514,6 @@ public class TranslationService {
             case "liked_contents": return "点赞的内容";
             case "no_liked_contents": return "您还没有点赞任何内容";
             case "edit": return "编辑";
-            case "comment_privacy_settings": return "评论隐私设置";
-            case "comment_privacy_description": return "开启后，您的所有评论将仅您可见";
-            case "privacy_settings_updated": return "隐私设置已更新";
-            case "update_comment_privacy_failed": return "更新评论隐私设置失败，请稍后再试";
             case "deleted": return "已删除";
             case "username_placeholder": return "用户名";
             case "comment_content_placeholder": return "评论内容...";
@@ -556,7 +552,6 @@ public class TranslationService {
             case "submit": return "提交";
             case "cancel": return "取消";
             case "save": return "保存";
-            case "moderator_backend": return "版主后台";
             case "admin_backend": return "管理员后台";
             case "settings": return "设置";
             case "language_settings": return "语言设置";
@@ -566,12 +561,6 @@ public class TranslationService {
             case "light": return "浅色";
             case "dark": return "深色";
             case "auto": return "自动";
-            case "profile_privacy_status": return "主页隐私状态";
-            case "privacy_lock_description": return "锁定后，您的所有内容和评论将仅自己可见。";
-            case "locked": return "已锁定";
-            case "unlocked": return "已解锁";
-            case "confirm_lock_profile": return "确定要锁定您的主页吗？所有内容和评论将变为私密。";
-            case "confirm_unlock_profile": return "确定要解锁您的主页吗？所有内容和评论将变为公开。";
             case "update_failed": return "更新失败";
             case "theme_switched": return "主题已切换";
             case "my_content_edits": return "我的内容编辑";
@@ -666,10 +655,6 @@ public class TranslationService {
             case "liked_contents": return "Liked Contents";
             case "no_liked_contents": return "You haven't liked any content yet";
             case "edit": return "Edit";
-            case "comment_privacy_settings": return "Comment Privacy Settings";
-            case "comment_privacy_description": return "When enabled, all your comments will only be visible to you";
-            case "privacy_settings_updated": return "Privacy settings updated";
-            case "update_comment_privacy_failed": return "Failed to update comment privacy settings, please try again later";
             case "deleted": return "Deleted";
             case "username_placeholder": return "Username";
             case "comment_content_placeholder": return "Comment content...";
@@ -708,7 +693,6 @@ public class TranslationService {
             case "submit": return "Submit";
             case "cancel": return "Cancel";
             case "save": return "Save";
-            case "moderator_backend": return "Moderator Backend";
             case "admin_backend": return "Admin Backend";
             case "settings": return "Settings";
             case "language_settings": return "Language Settings";
@@ -718,12 +702,6 @@ public class TranslationService {
             case "light": return "Light";
             case "dark": return "Dark";
             case "auto": return "Auto";
-            case "profile_privacy_status": return "Profile Privacy Status";
-            case "privacy_lock_description": return "When locked, all your content and comments will only be visible to you.";
-            case "locked": return "Locked";
-            case "unlocked": return "Unlocked";
-            case "confirm_lock_profile": return "Are you sure you want to lock your profile? All content and comments will become private.";
-            case "confirm_unlock_profile": return "Are you sure you want to unlock your profile? All content and comments will become public.";
             case "update_failed": return "Update failed";
             case "theme_switched": return "Theme switched";
             case "my_content_edits": return "My Content Edits";

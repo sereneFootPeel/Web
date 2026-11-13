@@ -3,6 +3,7 @@ import { Header } from './Header'
 import { Footer } from './Footer'
 import { WaterScene } from './WaterScene'
 import { ArchiveBackground } from './ArchiveBackground'
+import { PageCursorDots } from './PageCursorDots'
 
 export function Layout() {
   const location = useLocation()
@@ -36,8 +37,10 @@ export function Layout() {
               {isHistory ? (
                 <Outlet />
               ) : (
-                <div className="glass-panel min-h-[50vh] rounded-2xl px-4 py-5 sm:px-6 sm:py-7">
-                  <Outlet />
+                <div data-page-surface className="glass-panel relative min-h-[50vh] rounded-2xl px-4 py-5 sm:px-6 sm:py-7">
+                  <div className="relative z-10">
+                    <Outlet />
+                  </div>
                 </div>
               )}
             </main>
@@ -45,6 +48,7 @@ export function Layout() {
           </>
         )}
       </div>
+      <PageCursorDots />
     </>
   )
 }

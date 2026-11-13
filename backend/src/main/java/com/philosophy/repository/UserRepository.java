@@ -28,9 +28,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     // 按角色查找用户
     List<User> findByRole(String role);
     
-    // 查找指定流派的版主
-    List<User> findByRoleAndAssignedSchoolId(String role, Long schoolId);
-    
     /**
      * 查找过去24小时内注册的普通用户（基于注册时间）
      * 用于重复账户检测，只返回普通用户

@@ -1,6 +1,6 @@
 const DENIED = 'archive-denied'
 
-/** 登录失败或打开没有权限的页面时，让背景短暂亮起红光。 */
+/** 登录失败或打开没有权限的页面时，把上方的灯调暗，让红光从下方透出来。 */
 export function signalDenied() {
   window.dispatchEvent(new Event(DENIED))
 }

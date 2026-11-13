@@ -107,7 +107,7 @@ class HomeControllerPhilosopherImageTest {
 		when(translationService.getPhilosopherDisplayName(philosopher, "zh")).thenReturn("老子");
 		when(translationService.getPhilosopherDisplayBiography(philosopher, "zh")).thenReturn("道家代表人物");
 
-		ResponseEntity<Map<String, Object>> response = controller.getPhilosopherData(8L, null, null);
+		ResponseEntity<Map<String, Object>> response = controller.getPhilosopherData(8L, null);
 
 		assertEquals(200, response.getStatusCode().value());
 		assertNotNull(response.getBody());

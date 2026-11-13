@@ -390,7 +390,7 @@ public class AdminController {
     // 内容管理
     @GetMapping("/contents")
     public String listContents(Model model, HttpServletRequest request) {
-        // 只显示管理员和版主创建的内容
+        // 只显示管理员创建的内容
         model.addAttribute("contents", contentService.findAllAdminModeratorContents());
         return "admin/contents/list";
     }
@@ -769,10 +769,10 @@ public class AdminController {
         return "redirect:/admin/users/view/" + id;
     }
 
-    // 退出后台管理，返回到前台名句页面
+    // 退出后台管理，返回到前台首页
     @GetMapping("/exit")
     public String exitAdmin() {
-        return "redirect:/quotes";
+        return "redirect:/";
     }
 
     private String getLanguage(HttpServletRequest request) {

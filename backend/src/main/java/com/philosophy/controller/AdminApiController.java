@@ -77,7 +77,7 @@ public class AdminApiController {
     private String normalizeRole(String role) {
         String normalized = role == null ? "USER" : role.trim().toUpperCase();
         return switch (normalized) {
-            case "ADMIN", "MODERATOR", "USER" -> normalized;
+            case "ADMIN", "USER" -> normalized;
             default -> "USER";
         };
     }

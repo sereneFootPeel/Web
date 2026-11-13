@@ -32,9 +32,7 @@ public class CommentApiController {
     }
 
     @GetMapping("/content/{contentId}")
-    public ResponseEntity<Map<String, Object>> getComments(
-            @PathVariable Long contentId,
-            Authentication authentication) {
+    public ResponseEntity<Map<String, Object>> getComments(@PathVariable Long contentId) {
         Map<String, Object> response = new HashMap<>();
         try {
             Content content = contentService.getContentById(contentId);
@@ -42,19 +40,13 @@ public class CommentApiController {
                 return ResponseEntity.notFound().build();
             }
 
-            User currentUser = null;
-            if (authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken)) {
-                currentUser = userService.findByUsername(authentication.getName());
-            }
-            final User viewer = currentUser;
-
-            List<Comment> topLevel = commentService.findByContentIdWithPrivacyFilter(contentId, viewer);
+            List<Comment> topLevel = commentService.findByContentId(contentId);
             List<Map<String, Object>> commentList = new ArrayList<>();
             for (Comment c : topLevel) {
-                Map<String, Object> cm = toCommentMap(c, viewer);
-                List<Comment> replies = commentService.findRepliesByParentIdWithPrivacyFilter(c.getId(), viewer);
+                Map<String, Object> cm = toCommentMap(c);
+                List<Comment> replies = commentService.findRepliesByParentId(c.getId());
                 List<Map<String, Object>> replyList = replies.stream()
-                        .map(r -> toCommentMap(r, viewer))
+                        .map(this::toCommentMap)
                         .collect(Collectors.toList());
                 cm.put("replies", replyList);
                 commentList.add(cm);
@@ -175,7 +167,7 @@ public class CommentApiController {
         }
     }
 
-    private Map<String, Object> toCommentMap(Comment c, User currentUser) {
+    private Map<String, Object> toCommentMap(Comment c) {
         Map<String, Object> m = new HashMap<>();
         m.put("id", c.getId());
         m.put("body", c.getBody());

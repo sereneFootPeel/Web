@@ -45,31 +45,11 @@ public class Comment {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(name = "is_private", nullable = false)
-    private boolean isPrivate = false;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "privacy_set_by")
-    private User privacySetBy;
-
-    @Column(name = "privacy_set_at")
-    private LocalDateTime privacySetAt;
-
     @Column(name = "like_count")
     private Integer likeCount = 0;
 
     @Column(name = "status", nullable = false)
     private int status = 0;
-
-    @Column(name = "is_blocked", nullable = false)
-    private boolean isBlocked = false;
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "blocked_by")
-    private User blockedBy;
-
-    @Column(name = "blocked_at")
-    private LocalDateTime blockedAt;
 
     // 构造函数
     public Comment() {
@@ -146,30 +126,6 @@ public class Comment {
         this.replies = replies;
     }
 
-    public boolean isPrivate() {
-        return isPrivate;
-    }
-
-    public void setPrivate(boolean isPrivate) {
-        this.isPrivate = isPrivate;
-    }
-
-    public User getPrivacySetBy() {
-        return privacySetBy;
-    }
-
-    public void setPrivacySetBy(User privacySetBy) {
-        this.privacySetBy = privacySetBy;
-    }
-
-    public LocalDateTime getPrivacySetAt() {
-        return privacySetAt;
-    }
-
-    public void setPrivacySetAt(LocalDateTime privacySetAt) {
-        this.privacySetAt = privacySetAt;
-    }
-
     public Integer getLikeCount() {
         return (likeCount == null) ? 0 : likeCount;
     }
@@ -184,30 +140,6 @@ public class Comment {
 
     public void setStatus(int status) {
         this.status = status;
-    }
-
-    public boolean isBlocked() {
-        return isBlocked;
-    }
-
-    public void setBlocked(boolean isBlocked) {
-        this.isBlocked = isBlocked;
-    }
-
-    public User getBlockedBy() {
-        return blockedBy;
-    }
-
-    public void setBlockedBy(User blockedBy) {
-        this.blockedBy = blockedBy;
-    }
-
-    public LocalDateTime getBlockedAt() {
-        return blockedAt;
-    }
-
-    public void setBlockedAt(LocalDateTime blockedAt) {
-        this.blockedAt = blockedAt;
     }
 
     @Override

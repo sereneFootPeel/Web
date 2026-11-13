@@ -98,7 +98,6 @@ public class UserProfileApiController {
         res.put("firstName", user.getFirstName());
         res.put("lastName", user.getLastName());
         res.put("theme", user.getTheme());
-        res.put("isProfilePrivate", user.isProfilePrivate());
 
         if (currentUser != null && currentUser.getId().equals(user.getId())) {
             try {
@@ -129,7 +128,7 @@ public class UserProfileApiController {
             }
         } else {
             try {
-                List<Comment> comments = commentService.findByUserIdWithPrivacyFilter(user.getId(), currentUser);
+                List<Comment> comments = commentService.findByUserId(user.getId());
                 res.put("comments", comments.stream().map(this::toCommentSummary).toList());
             } catch (Exception e) {
                 logger.warn("Failed to load comments for user {}", user.getId(), e);
@@ -144,7 +143,7 @@ public class UserProfileApiController {
         }
 
         try {
-            List<Content> contents = contentService.getContentsByUserIdWithPrivacyFilter(user.getId(), currentUser);
+            List<Content> contents = contentService.getContentsByUserId(user.getId());
             Long currentUserId = currentUser != null ? currentUser.getId() : null;
             res.put("contents", contents.stream().map(c -> toContentSummary(c, lang, currentUserId)).toList());
             res.put("contentCount", contents.size());

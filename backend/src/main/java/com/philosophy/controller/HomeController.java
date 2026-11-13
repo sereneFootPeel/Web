@@ -212,7 +212,6 @@ public class HomeController {
     @GetMapping("/api/search")
     @ResponseBody
     public ResponseEntity<Map<String, Object>> searchApi(@RequestParam String query,
-                                                         Authentication authentication,
                                                          HttpServletRequest request) {
         Map<String, Object> response = new HashMap<>();
         String trimmedQuery = sanitizeSearchQuery(query);
@@ -235,12 +234,6 @@ public class HomeController {
             List<Philosopher> philosophers = philosopherService.searchPhilosophers(trimmedQuery);
             List<School> schools = schoolService.searchSchools(trimmedQuery);
             List<Content> contents = contentService.searchContents(trimmedQuery);
-
-            boolean isAuthenticated = authentication != null
-                    && authentication.isAuthenticated()
-                    && !(authentication instanceof AnonymousAuthenticationToken);
-            User currentUser = isAuthenticated ? (User) authentication.getPrincipal() : null;
-            contents = contentService.filterContentsByPrivacy(contents, currentUser);
 
             List<ForumThread> threads = forumService.searchThreads(trimmedQuery);
 
@@ -353,7 +346,6 @@ public class HomeController {
             @RequestParam String category,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "10") int size,
-            Authentication authentication,
             HttpServletRequest request) {
         Map<String, Object> response = new HashMap<>();
         String trimmedQuery = sanitizeSearchQuery(query);
@@ -429,18 +421,8 @@ public class HomeController {
                     
                 case "contents":
                     List<Content> allContents = contentService.searchContents(trimmedQuery);
-                    logger.info("内容搜索结果（过滤前）: {}", allContents.size());
-                    
-                    // 获取当前用户信息用于隐私过滤
-                    boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);
-                    User currentUser = null;
-                    if (isAuthenticated) {
-                        currentUser = (User) authentication.getPrincipal();
-                    }
-                    // 应用隐私过滤
-                    allContents = contentService.filterContentsByPrivacy(allContents, currentUser);
                     totalCount = allContents.size();
-                    logger.info("内容搜索结果（过滤后）: {}", totalCount);
+                    logger.info("内容搜索结果: 总数={}", totalCount);
                     
                     int startC = safePage * safeSize;
                     int endC = Math.min(startC + safeSize, totalCount);
@@ -556,21 +538,12 @@ public class HomeController {
     @ResponseBody
     public ResponseEntity<Map<String, Object>> getMoreContents(
             @RequestParam(value = "page", defaultValue = "0") int page,
-            @RequestParam(value = "size", defaultValue = "15") int size,
-            Authentication authentication) {
+            @RequestParam(value = "size", defaultValue = "15") int size) {
         
         Map<String, Object> response = new HashMap<>();
         
         try {
-            // 获取当前用户信息用于隐私过滤
-            boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);
-            User currentUser = null;
-            if (isAuthenticated) {
-                currentUser = (User) authentication.getPrincipal();
-            }
-
-            // 获取分页数据
-            Map<String, Object> result = contentService.findAllWithPrioritySortPaged(currentUser, page, size);
+            Map<String, Object> result = contentService.findAllWithPrioritySortPaged(page, size);
             
             response.put("success", true);
             response.put("contents", result.get("contents"));
@@ -607,11 +580,6 @@ public class HomeController {
             if (content == null) {
                 return ResponseEntity.notFound().build();
             }
-            List<Content> filtered = contentService.filterContentsByPrivacy(List.of(content), currentUser);
-            if (filtered.isEmpty()) {
-                return ResponseEntity.notFound().build();
-            }
-            content = filtered.get(0);
 
             Map<String, Object> contentData = new HashMap<>();
             contentData.put("id", content.getId());
@@ -664,7 +632,6 @@ public class HomeController {
     @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getPhilosopherData(
             @PathVariable("id") Long philosopherId,
-            Authentication authentication,
             HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
@@ -678,13 +645,6 @@ public class HomeController {
                 response.put("success", false);
                 response.put("message", "Philosopher not found");
                 return ResponseEntity.notFound().build();
-            }
-
-            // 获取当前用户信息用于隐私过滤
-            boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);
-            User currentUser = null;
-            if (isAuthenticated) {
-                currentUser = (User) authentication.getPrincipal();
             }
 
             // 构建哲学家基本信息
@@ -726,10 +686,7 @@ public class HomeController {
             @SuppressWarnings("unchecked")
             List<Content> contents = (List<Content>) result.get("contents");
             
-            // 应用隐私和屏蔽过滤
-            contents = contentService.filterContentsByPrivacy(contents, currentUser);
-            
-                // 构建内容数据
+            // 构建内容数据
             List<Map<String, Object>> contentList = new ArrayList<>();
             for (Content content : contents) {
                 try {
@@ -845,7 +802,6 @@ public class HomeController {
             @RequestParam("philosopherId") Long philosopherId,
             @RequestParam(value = "page", defaultValue = "0") int page,
             @RequestParam(value = "size", defaultValue = "12") int size,
-            Authentication authentication,
             HttpServletRequest request) {
         
         Map<String, Object> response = new HashMap<>();
@@ -861,21 +817,10 @@ public class HomeController {
                 return ResponseEntity.notFound().build();
             }
 
-            // 获取当前用户信息用于隐私过滤
-            boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);
-            User currentUser = null;
-            if (isAuthenticated) {
-                currentUser = (User) authentication.getPrincipal();
-            }
-
-            // 获取分页数据
             Map<String, Object> result = philosopherService.getContentsByPhilosopherIdWithPriorityPaged(philosopherId, page, size);
             
             @SuppressWarnings("unchecked")
             List<Content> contents = (List<Content>) result.get("contents");
-            
-            // 应用隐私和屏蔽过滤
-            contents = contentService.filterContentsByPrivacy(contents, currentUser);
             
             // 构建内容数据列表（包含翻译和关联信息）
             List<Map<String, Object>> contentList = new ArrayList<>();
@@ -952,78 +897,6 @@ public class HomeController {
             response.put("success", false);
             response.put("message", "Error loading more contents: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
-        }
-    }
-    
-    // API 端点：获取随机名句
-    @GetMapping("/api/quotes/random")
-    @ResponseBody
-    public ResponseEntity<List<Map<String, Object>>> getRandomQuotes(
-            @RequestParam(value = "count", defaultValue = "12") int count,
-            @RequestParam(value = "excludeIds", required = false) String excludeIds,
-            @RequestParam(value = "lang", required = false) String lang,
-            HttpServletRequest request,
-            Authentication authentication) {
-        
-        try {
-            // 获取当前语言设置（根据IP自动判断默认语言）；lang 可单独指定这一次的语言
-            String language = "en".equals(lang) || "zh".equals(lang)
-                    ? lang
-                    : languageUtil.getLanguage(request);
-            
-            // 获取当前用户（用于隐私过滤）
-            boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !(authentication instanceof AnonymousAuthenticationToken);
-            User currentUser = null;
-            if (isAuthenticated) {
-                currentUser = (User) authentication.getPrincipal();
-            }
-            
-            // 解析排除的ID列表
-            List<Long> excludeIdList = new ArrayList<>();
-            if (excludeIds != null && !excludeIds.trim().isEmpty()) {
-                String[] ids = excludeIds.split(",");
-                for (String id : ids) {
-                    try {
-                        excludeIdList.add(Long.parseLong(id.trim()));
-                    } catch (NumberFormatException e) {
-                        // 忽略无效的ID
-                    }
-                }
-            }
-            
-            // 获取随机内容
-            List<Content> contents;
-            if (excludeIdList.isEmpty()) {
-                contents = contentService.getRandomContents(count, currentUser);
-            } else {
-                contents = contentService.getRandomContentsExcluding(count, excludeIdList, currentUser);
-            }
-            
-            // 转换为简化的JSON格式
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (Content content : contents) {
-                Map<String, Object> item = new HashMap<>();
-                item.put("id", content.getId());
-                
-                // 使用 TranslationService 获取显示文本
-                String displayText = translationService.getContentDisplayText(content, language);
-                item.put("contentText", displayText);
-                
-                // 获取哲学家名称
-                if (content.getPhilosopher() != null) {
-                    String philosopherName = translationService.getPhilosopherDisplayName(content.getPhilosopher(), language);
-                    item.put("philosopherName", philosopherName);
-                } else {
-                    item.put("philosopherName", language.equals("en") ? "Unknown Philosopher" : "未知哲学家");
-                }
-                
-                result.add(item);
-            }
-            
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            logger.error("获取随机名句失败: " + e.getMessage(), e);
-            return ResponseEntity.internalServerError().body(new ArrayList<>());
         }
     }
 

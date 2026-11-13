@@ -61,9 +61,6 @@ public class DataImportService {
     private UserContentEditRepository userContentEditRepository;
 
     @Autowired
-    private UserBlockRepository userBlockRepository;
-
-    @Autowired
     private SchoolTranslationRepository schoolTranslationRepository;
 
     @Autowired
@@ -71,9 +68,6 @@ public class DataImportService {
 
     @Autowired
     private PhilosopherTranslationRepository philosopherTranslationRepository;
-
-    @Autowired
-    private UserFollowRepository userFollowRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -100,11 +94,12 @@ public class DataImportService {
     private static final int SCHOOL_SECTION_MIN_COLUMNS = 10;
     private static final int PHILOSOPHER_SECTION_MIN_COLUMNS = 15;
     private static final List<String> CLEAR_ALL_TARGET_TABLES = List.of(
+            "forum_replies",
+            "forum_threads",
+            "forum_categories",
             "user_login_info",
-            "user_blocks",
             "user_content_edits",
             "likes",
-            "user_follows",
             "comments",
             "contents_translation",
             "philosophers_translation",
@@ -115,7 +110,7 @@ public class DataImportService {
             "schools",
             "users"
     );
-    private static final Set<String> TRUE_STRING_VALUES = Set.of("1", "true", "yes", "y", "t", "on", "是", "私密", "屏蔽");
+    private static final Set<String> TRUE_STRING_VALUES = Set.of("1", "true", "yes", "y", "t", "on", "是");
     private static final Set<String> FALSE_STRING_VALUES = Set.of("0", "false", "no", "n", "f", "off", "否", "公开");
     public ImportResult importCsvData(MultipartFile file) {
         return importCsvData(file, false);
@@ -238,9 +233,7 @@ public class DataImportService {
             importCommentsInTransaction(result, dataSections.get("评论数据"));
             importLikesInTransaction(result, dataSections.get("点赞数据"));
             importUserContentEditsInTransaction(result, dataSections.get("用户内容编辑数据"));
-            importUserBlocksInTransaction(result, dataSections.get("用户屏蔽数据"));
             result.addResult("用户登录信息", 0, 0);
-            importUserFollowsInTransaction(result, dataSections.get("用户关注数据"));
             
             // 导入翻译数据 - 支持多种段标题格式（含“流派”同义词）
             List<String[]> schoolTranslationData = findSectionByKeywords(dataSections, "学派", "翻译");
@@ -266,6 +259,10 @@ public class DataImportService {
                 philosopherTranslationData = dataSections.get("哲学家翻译数据");
             }
             importPhilosopherTranslationsInTransaction(result, philosopherTranslationData);
+
+            importForumCategoriesInTransaction(result, forumSection(dataSections, "论坛板块数据", "论坛", "板块"));
+            importForumThreadsInTransaction(result, forumSection(dataSections, "论坛帖子数据", "论坛", "帖子"));
+            importForumRepliesInTransaction(result, forumSection(dataSections, "论坛回复数据", "论坛", "回复"));
 
             // 即使有部分失败，只要不是全部失败，就认为导入成功
             if (result.getTotalImported() > 0) {
@@ -381,16 +378,16 @@ public class DataImportService {
     }
 
     private void clearTablesInOrder(Set<String> existingTables) {
+        safeDeleteTable(existingTables, "forum_replies", "论坛回复表");
+        safeDeleteTable(existingTables, "forum_threads", "论坛帖子表");
+        safeDeleteTable(existingTables, "forum_categories", "论坛板块表");
+
         // 1. 删除所有依赖表（没有外键约束的表）
         safeDeleteTable(existingTables, "user_login_info", "用户登录信息表");
-        safeDeleteTable(existingTables, "user_blocks", "用户屏蔽表");
         safeDeleteTable(existingTables, "user_content_edits", "用户内容编辑表");
         safeDeleteTable(existingTables, "likes", "点赞表");
         
-        // 2. 删除用户关注表（依赖用户表）
-        safeDeleteTable(existingTables, "user_follows", "用户关注表");
-        
-        // 3. 删除评论表（依赖用户和内容表）
+        // 删除评论表（依赖用户和内容表）
         safeDeleteTable(existingTables, "comments", "评论表");
         
         // 4. 删除翻译表
@@ -428,11 +425,12 @@ public class DataImportService {
 
     public Map<String, Long> collectClearDataSummary() {
         Map<String, Long> summary = new LinkedHashMap<>();
+        summary.put("forum_replies", countRowsLenient("forum_replies"));
+        summary.put("forum_threads", countRowsLenient("forum_threads"));
+        summary.put("forum_categories", countRowsLenient("forum_categories"));
         summary.put("user_login_info", countRowsLenient("user_login_info"));
-        summary.put("user_blocks", countRowsLenient("user_blocks"));
         summary.put("user_content_edits", countRowsLenient("user_content_edits"));
         summary.put("likes", countRowsLenient("likes"));
-        summary.put("user_follows", countRowsLenient("user_follows"));
         summary.put("comments", countRowsLenient("comments"));
         summary.put("contents_translation", countRowsLenient("contents_translation"));
         summary.put("philosophers_translation", countRowsLenient("philosophers_translation"));
@@ -447,11 +445,12 @@ public class DataImportService {
 
     private Map<String, Long> collectStrictClearDataSummary(Set<String> existingTables) {
         Map<String, Long> summary = new LinkedHashMap<>();
+        summary.put("forum_replies", countRowsSafely(existingTables, "forum_replies"));
+        summary.put("forum_threads", countRowsSafely(existingTables, "forum_threads"));
+        summary.put("forum_categories", countRowsSafely(existingTables, "forum_categories"));
         summary.put("user_login_info", countRowsSafely(existingTables, "user_login_info"));
-        summary.put("user_blocks", countRowsSafely(existingTables, "user_blocks"));
         summary.put("user_content_edits", countRowsSafely(existingTables, "user_content_edits"));
         summary.put("likes", countRowsSafely(existingTables, "likes"));
-        summary.put("user_follows", countRowsSafely(existingTables, "user_follows"));
         summary.put("comments", countRowsSafely(existingTables, "comments"));
         summary.put("contents_translation", countRowsSafely(existingTables, "contents_translation"));
         summary.put("philosophers_translation", countRowsSafely(existingTables, "philosophers_translation"));
@@ -583,6 +582,28 @@ public class DataImportService {
             // 使用原生SQL按正确顺序删除，避免外键约束问题
             // 按照外键依赖关系的逆序删除
             
+            try {
+                entityManager.createNativeQuery("UPDATE forum_replies SET parent_id = NULL").executeUpdate();
+                entityManager.createNativeQuery("DELETE FROM forum_replies").executeUpdate();
+                logger.info("清空论坛回复表");
+            } catch (Exception e) {
+                logger.warn("清空论坛回复表失败，可能表不存在: {}", e.getMessage());
+            }
+
+            try {
+                entityManager.createNativeQuery("DELETE FROM forum_threads").executeUpdate();
+                logger.info("清空论坛帖子表");
+            } catch (Exception e) {
+                logger.warn("清空论坛帖子表失败，可能表不存在: {}", e.getMessage());
+            }
+
+            try {
+                entityManager.createNativeQuery("DELETE FROM forum_categories").executeUpdate();
+                logger.info("清空论坛板块表");
+            } catch (Exception e) {
+                logger.warn("清空论坛板块表失败，可能表不存在: {}", e.getMessage());
+            }
+
             // 1. 删除所有依赖表（没有外键约束的表）
             
             try {
@@ -592,13 +613,6 @@ public class DataImportService {
                 logger.warn("清空用户登录信息表失败，可能表不存在: {}", e.getMessage());
             }
 
-            try {
-                entityManager.createNativeQuery("DELETE FROM user_blocks").executeUpdate();
-                logger.info("清空用户屏蔽表");
-            } catch (Exception e) {
-                logger.warn("清空用户屏蔽表失败，可能表不存在: {}", e.getMessage());
-            }
-            
             try {
                 entityManager.createNativeQuery("DELETE FROM user_content_edits").executeUpdate();
                 logger.info("清空用户内容编辑表");
@@ -613,15 +627,7 @@ public class DataImportService {
                 logger.warn("清空点赞表失败，可能表不存在: {}", e.getMessage());
             }
             
-            // 2. 删除用户关注表（依赖用户表）
-            try {
-                entityManager.createNativeQuery("DELETE FROM user_follows").executeUpdate();
-                logger.info("清空用户关注表");
-            } catch (Exception e) {
-                logger.warn("清空用户关注表失败，可能表不存在: {}", e.getMessage());
-            }
-            
-            // 3. 删除评论表（依赖用户和内容表）
+            // 删除评论表（依赖用户和内容表）
             try {
                 entityManager.createNativeQuery("DELETE FROM comments").executeUpdate();
                 logger.info("清空评论表");
@@ -721,21 +727,22 @@ public class DataImportService {
             // 使用原生SQL按正确顺序删除，避免外键约束问题
             // 按照外键依赖关系的逆序删除
             
+            entityManager.createNativeQuery("UPDATE forum_replies SET parent_id = NULL").executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM forum_replies").executeUpdate();
+            logger.info("清空论坛回复表");
+            entityManager.createNativeQuery("DELETE FROM forum_threads").executeUpdate();
+            logger.info("清空论坛帖子表");
+            entityManager.createNativeQuery("DELETE FROM forum_categories").executeUpdate();
+            logger.info("清空论坛板块表");
+
             // 1. 删除所有依赖表（没有外键约束的表）
-            entityManager.createNativeQuery("DELETE FROM user_blocks").executeUpdate();
-            logger.info("清空用户屏蔽表");
-            
             entityManager.createNativeQuery("DELETE FROM user_content_edits").executeUpdate();
             logger.info("清空用户内容编辑表");
             
             entityManager.createNativeQuery("DELETE FROM likes").executeUpdate();
             logger.info("清空点赞表");
             
-            // 2. 删除用户关注表（依赖用户表）
-            entityManager.createNativeQuery("DELETE FROM user_follows").executeUpdate();
-            logger.info("清空用户关注表");
-            
-            // 3. 删除评论表（依赖用户和内容表）
+            // 删除评论表（依赖用户和内容表）
             entityManager.createNativeQuery("DELETE FROM comments").executeUpdate();
             logger.info("清空评论表");
             
@@ -938,6 +945,17 @@ public class DataImportService {
         return null;
     }
 
+    private List<String[]> forumSection(Map<String, List<String[]>> dataSections, String exactName, String... keywords) {
+        if (dataSections == null) {
+            return null;
+        }
+        List<String[]> exact = dataSections.get(exactName);
+        if (exact != null) {
+            return exact;
+        }
+        return findSectionByKeywords(dataSections, keywords);
+    }
+
     private boolean updateQuoteState(boolean inQuotes, String line) {
         if (line == null || line.isEmpty()) {
             return inQuotes;
@@ -1074,11 +1092,6 @@ public class DataImportService {
                     continue;
                 }
                 
-                // 检查现有用户，以便保留版主的流派分配（如果CSV中未提供）
-                User existingUser = userRepository.findById(userId).orElse(null);
-                Long existingAssignedSchoolId = (existingUser != null && "MODERATOR".equals(existingUser.getRole())) 
-                    ? existingUser.getAssignedSchoolId() : null;
-                
                 // 直接创建新用户，不查找现有用户
                 User user = new User();
                 user.setId(userId); // 设置CSV中的ID
@@ -1102,7 +1115,8 @@ public class DataImportService {
                     user.setLastName(fields[5]);
                 }
                 if (fields.length > 6 && !fields[6].isEmpty() && !fields[6].equals("null")) {
-                    user.setRole(fields[6]);
+                    String role = fields[6].trim().toUpperCase();
+                    user.setRole("ADMIN".equals(role) ? "ADMIN" : "USER");
                 } else {
                     user.setRole("USER"); // 默认角色
                 }
@@ -1112,23 +1126,6 @@ public class DataImportService {
                     user.setEnabled("1".equals(fields[7]) || "true".equalsIgnoreCase(fields[7]));
                 } else {
                     user.setEnabled(true);
-                }
-                
-                // 处理隐私设置 (字段12-14: 个人资料隐私,评论隐私,内容隐私)
-                if (fields.length > 12 && !fields[12].isEmpty() && !fields[12].equals("null")) {
-                    user.setProfilePrivate("1".equals(fields[12]) || "true".equalsIgnoreCase(fields[12]));
-                } else {
-                    user.setProfilePrivate(false);
-                }
-                if (fields.length > 13 && !fields[13].isEmpty() && !fields[13].equals("null")) {
-                    user.setCommentsPrivate("1".equals(fields[13]) || "true".equalsIgnoreCase(fields[13]));
-                } else {
-                    user.setCommentsPrivate(false);
-                }
-                if (fields.length > 14 && !fields[14].isEmpty() && !fields[14].equals("null")) {
-                    user.setContentsPrivate("1".equals(fields[14]) || "true".equalsIgnoreCase(fields[14]));
-                } else {
-                    user.setContentsPrivate(false);
                 }
                 
                 // 处理管理员登录尝试次数 (字段15)
@@ -1162,14 +1159,7 @@ public class DataImportService {
                         user.setAssignedSchoolId(null);
                     }
                 } else {
-                    // 如果字段为空或不存在，对于版主用户，尝试保留现有的流派分配
-                    // 这样可以避免重新导入时丢失版主的流派分配
-                    if (existingAssignedSchoolId != null && "MODERATOR".equals(user.getRole())) {
-                        user.setAssignedSchoolId(existingAssignedSchoolId);
-                        logger.debug("用户ID {}: CSV中未提供流派分配，保留现有流派分配: {}", userId, existingAssignedSchoolId);
-                    } else {
-                        user.setAssignedSchoolId(null);
-                    }
+                    user.setAssignedSchoolId(null);
                 }
                 deferAssignedSchoolAssignment(user, sectionName, i);
                 
@@ -1338,6 +1328,30 @@ public class DataImportService {
         deleteUserCascade(userId);
     }
 
+    private void deleteForumRowsForUser(Long userId) {
+        if (userId == null || !tableExists("forum_replies") || !tableExists("forum_threads")) {
+            return;
+        }
+
+        jakarta.persistence.Query clearParents = entityManager.createNativeQuery(
+                "UPDATE forum_replies SET parent_id = NULL WHERE parent_id IN (" +
+                        "SELECT id FROM (SELECT r.id FROM forum_replies r WHERE r.user_id = ? " +
+                        "OR r.thread_id IN (SELECT t.id FROM forum_threads t WHERE t.user_id = ?)) doomed)");
+        clearParents.setParameter(1, userId);
+        clearParents.setParameter(2, userId);
+        clearParents.executeUpdate();
+
+        jakarta.persistence.Query deleteReplies = entityManager.createNativeQuery(
+                "DELETE FROM forum_replies WHERE user_id = ? OR thread_id IN (SELECT id FROM forum_threads WHERE user_id = ?)");
+        deleteReplies.setParameter(1, userId);
+        deleteReplies.setParameter(2, userId);
+        deleteReplies.executeUpdate();
+
+        jakarta.persistence.Query deleteThreads = entityManager.createNativeQuery("DELETE FROM forum_threads WHERE user_id = ?");
+        deleteThreads.setParameter(1, userId);
+        deleteThreads.executeUpdate();
+    }
+
     private void deleteUserCascade(Long userId) {
         if (userId == null) {
             return;
@@ -1346,15 +1360,7 @@ public class DataImportService {
         logger.debug("清理用户依赖数据并删除旧记录: userId={}", userId);
 
         try {
-            jakarta.persistence.Query deleteFollowQuery = entityManager.createNativeQuery("DELETE FROM user_follows WHERE follower_id = ? OR following_id = ?");
-            deleteFollowQuery.setParameter(1, userId);
-            deleteFollowQuery.setParameter(2, userId);
-            deleteFollowQuery.executeUpdate();
-
-            jakarta.persistence.Query deleteBlockQuery = entityManager.createNativeQuery("DELETE FROM user_blocks WHERE blocker_id = ? OR blocked_id = ?");
-            deleteBlockQuery.setParameter(1, userId);
-            deleteBlockQuery.setParameter(2, userId);
-            deleteBlockQuery.executeUpdate();
+            deleteForumRowsForUser(userId);
 
             jakarta.persistence.Query deleteUserContentEditQuery = entityManager.createNativeQuery("DELETE FROM user_content_edits WHERE user_id = ?");
             deleteUserContentEditQuery.setParameter(1, userId);
@@ -1377,21 +1383,6 @@ public class DataImportService {
                     "UPDATE contents SET locked_by_user_id = NULL WHERE locked_by_user_id = ?");
             resetContentLockQuery.setParameter(1, userId);
             resetContentLockQuery.executeUpdate();
-
-            jakarta.persistence.Query resetContentPrivacyQuery = entityManager.createNativeQuery(
-                    "UPDATE contents SET privacy_set_by = NULL WHERE privacy_set_by = ?");
-            resetContentPrivacyQuery.setParameter(1, userId);
-            resetContentPrivacyQuery.executeUpdate();
-
-            jakarta.persistence.Query resetContentBlockedQuery = entityManager.createNativeQuery(
-                    "UPDATE contents SET blocked_by = NULL WHERE blocked_by = ?");
-            resetContentBlockedQuery.setParameter(1, userId);
-            resetContentBlockedQuery.executeUpdate();
-
-            jakarta.persistence.Query resetCommentPrivacyQuery = entityManager.createNativeQuery(
-                    "UPDATE comments SET privacy_set_by = NULL WHERE privacy_set_by = ?");
-            resetCommentPrivacyQuery.setParameter(1, userId);
-            resetCommentPrivacyQuery.executeUpdate();
 
             jakarta.persistence.Query deleteContentTranslationQuery = entityManager.createNativeQuery(
                     "DELETE FROM contents_translation WHERE content_id IN (SELECT id FROM contents WHERE user_id = ?)");
@@ -1596,10 +1587,6 @@ public class DataImportService {
 
         addInsertColumn(columns, params, tableName, "role", user.getRole(), context, true);
         addInsertColumn(columns, params, tableName, "enabled", user.isEnabled(), context, true);
-
-        addInsertColumn(columns, params, tableName, "profile_private", user.isProfilePrivate(), context, false);
-        addInsertColumn(columns, params, tableName, "comments_private", user.isCommentsPrivate(), context, false);
-        addInsertColumn(columns, params, tableName, "contents_private", user.isContentsPrivate(), context, false);
 
         addInsertColumn(columns, params, tableName, "admin_login_attempts", user.getAdminLoginAttempts(), context, false);
         addInsertColumn(columns, params, tableName, "like_count", user.getLikeCount(), context, false);
@@ -2330,9 +2317,7 @@ public class DataImportService {
                 
                 // 设置必需字段的默认值
                 content.setLikeCount(0);
-                content.setPrivate(false);
                 content.setStatus(0);
-                content.setBlocked(false);
                 content.setVersion(1L); // 设置初始版本号为1，避免乐观锁冲突
 
                 logger.debug("准备保存内容: ID={}, content={}", contentId, contentText);
@@ -2349,9 +2334,7 @@ public class DataImportService {
                     addUpdateColumn(updateAssignments, updateParams, tableName, "content_en", content.getContentEn(), context, false);
                     addUpdateColumn(updateAssignments, updateParams, tableName, "order_index", content.getOrderIndex(), context, false);
                     addUpdateColumn(updateAssignments, updateParams, tableName, "like_count", content.getLikeCount(), context, false);
-                    addUpdateColumn(updateAssignments, updateParams, tableName, "is_private", content.isPrivate(), context, false);
                     addUpdateColumn(updateAssignments, updateParams, tableName, "status", content.getStatus(), context, false);
-                    addUpdateColumn(updateAssignments, updateParams, tableName, "is_blocked", content.isBlocked(), context, false);
                     addUpdateColumn(updateAssignments, updateParams, tableName, "version", content.getVersion(), context, false);
 
                     if (ensureColumnExists(tableName, "updated_at", false, context)) {
@@ -2378,9 +2361,7 @@ public class DataImportService {
                         addInsertColumn(insertColumns, insertParams, tableName, "content_en", content.getContentEn(), context, false);
                         addInsertColumn(insertColumns, insertParams, tableName, "order_index", content.getOrderIndex(), context, false);
                         addInsertColumn(insertColumns, insertParams, tableName, "like_count", content.getLikeCount(), context, false);
-                        addInsertColumn(insertColumns, insertParams, tableName, "is_private", content.isPrivate(), context, false);
                         addInsertColumn(insertColumns, insertParams, tableName, "status", content.getStatus(), context, false);
-                        addInsertColumn(insertColumns, insertParams, tableName, "is_blocked", content.isBlocked(), context, false);
                         addInsertColumn(insertColumns, insertParams, tableName, "version", content.getVersion(), context, false);
 
                         if (ensureColumnExists(tableName, "philosopher_id", false, context)) {
@@ -2821,6 +2802,327 @@ public class DataImportService {
     }
 
 
+    public void importForumCategoriesInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importForumCategories(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("论坛板块导入事务失败", e);
+        }
+    }
+
+    public void importForumThreadsInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importForumThreads(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("论坛帖子导入事务失败", e);
+        }
+    }
+
+    public void importForumRepliesInTransaction(ImportResult result, List<String[]> data) {
+        try {
+            transactionTemplate.execute(status -> {
+                importForumReplies(result, data);
+                return null;
+            });
+        } catch (Exception e) {
+            logger.error("论坛回复导入事务失败", e);
+        }
+    }
+
+    private void importForumCategories(ImportResult result, List<String[]> data) {
+        final String sectionName = "论坛板块";
+        if (data == null || data.isEmpty()) {
+            result.addResult(sectionName, 0, 0);
+            return;
+        }
+
+        int success = 0;
+        int failed = 0;
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                if (fields == null || isRowEmpty(fields) || isHeaderRow(fields)) {
+                    continue;
+                }
+                fields = ensureMinimumColumns(fields, 7);
+                Long id = parseIdFromValue(fields[0]);
+                if (id == null) {
+                    throw new IllegalArgumentException("缺少或无法解析板块ID: " + fields[0]);
+                }
+                String slug = blankToNull(fields[1]);
+                String name = blankToNull(fields[2]);
+                String nameEn = blankToNull(fields[3]);
+                if (slug == null || name == null || nameEn == null) {
+                    throw new IllegalArgumentException("板块ID " + id + " 缺少标识或名称");
+                }
+                String description = blankToNull(fields[4]);
+                String descriptionEn = blankToNull(fields[5]);
+                Integer sortOrder = parseInteger(fields[6]);
+                int sort = sortOrder == null ? 0 : sortOrder;
+
+                Long slugOwner = querySingleLong("SELECT id FROM forum_categories WHERE slug = ? LIMIT 1", slug);
+                if (slugOwner != null && !slugOwner.equals(id)) {
+                    executeUpdate("UPDATE forum_categories SET slug = ? WHERE id = ?", "tmp-" + slugOwner, slugOwner);
+                }
+
+                int updated = executeUpdate(
+                        "UPDATE forum_categories SET slug = ?, name = ?, name_en = ?, description = ?, description_en = ?, sort_order = ? WHERE id = ?",
+                        slug, name, nameEn, description, descriptionEn, sort, id);
+                if (updated == 0) {
+                    executeUpdate(
+                            "INSERT INTO forum_categories (id, slug, name, name_en, description, description_en, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            id, slug, name, nameEn, description, descriptionEn, sort);
+                }
+                if (slugOwner != null && !slugOwner.equals(id)) {
+                    if (tableExists("forum_threads")) {
+                        executeUpdate("UPDATE forum_threads SET category_id = ? WHERE category_id = ?", id, slugOwner);
+                    }
+                    executeUpdate("DELETE FROM forum_categories WHERE id = ?", slugOwner);
+                }
+                success++;
+            } catch (IllegalArgumentException e) {
+                failed++;
+                logger.warn("解析论坛板块失败: {}", e.getMessage());
+                recordFailureDetail(result, sectionName, index, fields, e.getMessage(), null);
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入论坛板块失败: {}", Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "导入失败", e);
+            }
+        }
+        result.addResult(sectionName, success, failed);
+        logger.info("论坛板块导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    private void importForumThreads(ImportResult result, List<String[]> data) {
+        final String sectionName = "论坛帖子";
+        if (data == null || data.isEmpty()) {
+            result.addResult(sectionName, 0, 0);
+            return;
+        }
+
+        int success = 0;
+        int failed = 0;
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                if (fields == null || isRowEmpty(fields) || isHeaderRow(fields)) {
+                    continue;
+                }
+                fields = ensureMinimumColumns(fields, 12);
+                Long id = parseIdFromValue(fields[0]);
+                if (id == null) {
+                    throw new IllegalArgumentException("缺少或无法解析帖子ID: " + fields[0]);
+                }
+                Long categoryId = parseIdFromValue(fields[1]);
+                Long userId = parseIdFromValue(fields[2]);
+                String title = blankToNull(fields[3]);
+                String body = blankToNull(fields[4]);
+                if (categoryId == null) {
+                    throw new IllegalArgumentException("帖子ID " + id + " 缺少板块ID");
+                }
+                if (userId == null) {
+                    throw new IllegalArgumentException("帖子ID " + id + " 缺少作者ID");
+                }
+                if (title == null || body == null) {
+                    throw new IllegalArgumentException("帖子ID " + id + " 缺少标题或正文");
+                }
+                if (querySingleLong("SELECT id FROM forum_categories WHERE id = ? LIMIT 1", categoryId) == null) {
+                    throw new IllegalArgumentException("帖子ID " + id + " 指向的板块ID " + categoryId + " 不存在");
+                }
+                if (querySingleLong("SELECT id FROM users WHERE id = ? LIMIT 1", userId) == null) {
+                    throw new IllegalArgumentException("帖子ID " + id + " 的作者ID " + userId + " 不存在");
+                }
+
+                int replyCount = valueOrZero(parseInteger(fields[5]));
+                int viewCount = valueOrZero(parseInteger(fields[6]));
+                int pinned = Boolean.TRUE.equals(parseBooleanFlexible(fields[7])) ? 1 : 0;
+                int locked = Boolean.TRUE.equals(parseBooleanFlexible(fields[8])) ? 1 : 0;
+                LocalDateTime createdAt = parseDateTimeFlexible(fields[9]);
+                LocalDateTime updatedAt = parseDateTimeFlexible(fields[10]);
+                LocalDateTime lastActivityAt = parseDateTimeFlexible(fields[11]);
+                if (updatedAt == null) {
+                    updatedAt = createdAt;
+                }
+                if (lastActivityAt == null) {
+                    lastActivityAt = updatedAt;
+                }
+
+                int updated = executeUpdate(
+                        "UPDATE forum_threads SET category_id = ?, user_id = ?, title = ?, body = ?, reply_count = ?, view_count = ?, pinned = ?, locked = ?, created_at = ?, updated_at = ?, last_activity_at = ? WHERE id = ?",
+                        categoryId, userId, title, body, replyCount, viewCount, pinned, locked, createdAt, updatedAt, lastActivityAt, id);
+                if (updated == 0) {
+                    executeUpdate(
+                            "INSERT INTO forum_threads (id, category_id, user_id, title, body, reply_count, view_count, pinned, locked, created_at, updated_at, last_activity_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            id, categoryId, userId, title, body, replyCount, viewCount, pinned, locked, createdAt, updatedAt, lastActivityAt);
+                }
+                success++;
+            } catch (IllegalArgumentException e) {
+                failed++;
+                logger.warn("解析论坛帖子失败: {}", e.getMessage());
+                recordFailureDetail(result, sectionName, index, fields, e.getMessage(), null);
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入论坛帖子失败: {}", Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "导入失败", e);
+            }
+        }
+        result.addResult(sectionName, success, failed);
+        logger.info("论坛帖子导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    private void importForumReplies(ImportResult result, List<String[]> data) {
+        final String sectionName = "论坛回复";
+        if (data == null || data.isEmpty()) {
+            result.addResult(sectionName, 0, 0);
+            return;
+        }
+
+        Set<Long> importedReplyIds = new HashSet<>();
+        List<long[]> deferredParents = new ArrayList<>();
+        int success = 0;
+        int failed = 0;
+        for (int index = 0; index < data.size(); index++) {
+            String[] fields = data.get(index);
+            try {
+                if (fields == null || isRowEmpty(fields) || isHeaderRow(fields)) {
+                    continue;
+                }
+                fields = ensureMinimumColumns(fields, 7);
+                Long id = parseIdFromValue(fields[0]);
+                if (id == null) {
+                    throw new IllegalArgumentException("缺少或无法解析回复ID: " + fields[0]);
+                }
+                Long threadId = parseIdFromValue(fields[1]);
+                Long parentId = parseIdFromValue(fields[2]);
+                Long userId = parseIdFromValue(fields[3]);
+                String body = blankToNull(fields[4]);
+                if (threadId == null) {
+                    throw new IllegalArgumentException("回复ID " + id + " 缺少帖子ID");
+                }
+                if (userId == null) {
+                    throw new IllegalArgumentException("回复ID " + id + " 缺少作者ID");
+                }
+                if (body == null) {
+                    throw new IllegalArgumentException("回复ID " + id + " 缺少正文");
+                }
+                if (querySingleLong("SELECT id FROM forum_threads WHERE id = ? LIMIT 1", threadId) == null) {
+                    throw new IllegalArgumentException("回复ID " + id + " 指向的帖子ID " + threadId + " 不存在");
+                }
+                if (querySingleLong("SELECT id FROM users WHERE id = ? LIMIT 1", userId) == null) {
+                    throw new IllegalArgumentException("回复ID " + id + " 的作者ID " + userId + " 不存在");
+                }
+                if (parentId != null && parentId.equals(id)) {
+                    parentId = null;
+                }
+
+                Long parentForWrite = parentId;
+                if (parentForWrite != null
+                        && !importedReplyIds.contains(parentForWrite)
+                        && querySingleLong("SELECT id FROM forum_replies WHERE id = ? LIMIT 1", parentForWrite) == null) {
+                    deferredParents.add(new long[]{id, parentForWrite});
+                    parentForWrite = null;
+                }
+
+                LocalDateTime createdAt = parseDateTimeFlexible(fields[5]);
+                LocalDateTime updatedAt = parseDateTimeFlexible(fields[6]);
+                if (updatedAt == null) {
+                    updatedAt = createdAt;
+                }
+
+                int updated = executeUpdate(
+                        "UPDATE forum_replies SET thread_id = ?, parent_id = ?, user_id = ?, body = ?, created_at = ?, updated_at = ? WHERE id = ?",
+                        threadId, parentForWrite, userId, body, createdAt, updatedAt, id);
+                if (updated == 0) {
+                    executeUpdate(
+                            "INSERT INTO forum_replies (id, thread_id, parent_id, user_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                            id, threadId, parentForWrite, userId, body, createdAt, updatedAt);
+                }
+                importedReplyIds.add(id);
+                success++;
+            } catch (IllegalArgumentException e) {
+                failed++;
+                logger.warn("解析论坛回复失败: {}", e.getMessage());
+                recordFailureDetail(result, sectionName, index, fields, e.getMessage(), null);
+            } catch (Exception e) {
+                failed++;
+                logger.warn("导入论坛回复失败: {}", Arrays.toString(fields), e);
+                recordFailureDetail(result, sectionName, index, fields, "导入失败", e);
+            }
+        }
+
+        for (long[] pair : deferredParents) {
+            long replyId = pair[0];
+            long parentId = pair[1];
+            if (!importedReplyIds.contains(replyId)) {
+                continue;
+            }
+            if (!importedReplyIds.contains(parentId)
+                    && querySingleLong("SELECT id FROM forum_replies WHERE id = ? LIMIT 1", parentId) == null) {
+                logger.warn("回复 {} 的父回复 {} 仍不存在，跳过延迟关联", replyId, parentId);
+                continue;
+            }
+            try {
+                executeUpdate("UPDATE forum_replies SET parent_id = ? WHERE id = ?", parentId, replyId);
+            } catch (Exception e) {
+                logger.warn("延迟更新论坛回复父级失败: replyId={}, parentId={}", replyId, parentId, e);
+            }
+        }
+
+        result.addResult(sectionName, success, failed);
+        logger.info("论坛回复导入完成，成功: {}, 失败: {}", success, failed);
+    }
+
+    private int valueOrZero(Integer value) {
+        return value == null ? 0 : value;
+    }
+
+    private String blankToNull(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.isEmpty() || "null".equalsIgnoreCase(value)) {
+            return null;
+        }
+        return value;
+    }
+
+    private Long querySingleLong(String sql, Object... params) {
+        jakarta.persistence.Query query = entityManager.createNativeQuery(sql);
+        bindParameters(query, params);
+        List<?> rows = query.getResultList();
+        if (rows == null || rows.isEmpty() || rows.get(0) == null) {
+            return null;
+        }
+        Object value = rows.get(0);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.parseLong(value.toString());
+    }
+
+    private int executeUpdate(String sql, Object... params) {
+        jakarta.persistence.Query query = entityManager.createNativeQuery(sql);
+        bindParameters(query, params);
+        return query.executeUpdate();
+    }
+
+    private void bindParameters(jakarta.persistence.Query query, Object... params) {
+        if (params == null) {
+            return;
+        }
+        for (int i = 0; i < params.length; i++) {
+            query.setParameter(i + 1, params[i]);
+        }
+    }
+
     public void importCommentsInTransaction(ImportResult result, List<String[]> data) {
         try {
             transactionTemplate.execute(status -> {
@@ -2904,22 +3206,9 @@ public class DataImportService {
                 addInsertColumn(insertColumns, insertParams, tableName, "status",
                         row.status != null ? row.status : 0, context, false);
 
-                if (ensureColumnExists(tableName, "is_private", false, context)) {
-                    insertColumns.add("is_private");
-                    insertParams.add(row.isPrivate != null ? (row.isPrivate ? 1 : 0) : 0);
-                }
-                if (ensureColumnExists(tableName, "is_blocked", false, context)) {
-                    insertColumns.add("is_blocked");
-                    insertParams.add(row.isBlocked != null ? (row.isBlocked ? 1 : 0) : 0);
-                }
-
                 addInsertColumn(insertColumns, insertParams, tableName, "content_id", row.contentId, context, true);
                 addInsertColumn(insertColumns, insertParams, tableName, "user_id", row.userId, context, true);
                 addInsertColumn(insertColumns, insertParams, tableName, "parent_id", parentIdForInsert, context, false);
-                addInsertColumn(insertColumns, insertParams, tableName, "blocked_at", row.blockedAt, context, false);
-                addInsertColumn(insertColumns, insertParams, tableName, "blocked_by", row.blockedById, context, false);
-                addInsertColumn(insertColumns, insertParams, tableName, "privacy_set_at", row.privacySetAt, context, false);
-                addInsertColumn(insertColumns, insertParams, tableName, "privacy_set_by", row.privacySetById, context, false);
 
                 LocalDateTime createdValue = (row.createdAt != null) ? row.createdAt : LocalDateTime.now();
                 LocalDateTime updatedValue = (row.updatedAt != null) ? row.updatedAt : createdValue;
@@ -3032,29 +3321,11 @@ public class DataImportService {
         String statusRaw = extractField(fields, headerIndex, -1, "status", "状态");
         row.status = parseInteger(statusRaw);
 
-        String privateRaw = extractField(fields, headerIndex, -1, "is_private", "private", "是否私密");
-        row.isPrivate = parseBooleanFlexible(privateRaw);
-
-        String blockedRaw = extractField(fields, headerIndex, -1, "is_blocked", "blocked", "是否屏蔽");
-        row.isBlocked = parseBooleanFlexible(blockedRaw);
-
         String createdRaw = extractField(fields, headerIndex, 5, "created_at", "create_time", "创建时间", "时间");
         row.createdAt = parseDateTimeFlexible(createdRaw);
 
         String updatedRaw = extractField(fields, headerIndex, -1, "updated_at", "update_time", "更新时间");
         row.updatedAt = parseDateTimeFlexible(updatedRaw);
-
-        String blockedAtRaw = extractField(fields, headerIndex, -1, "blocked_at", "屏蔽时间");
-        row.blockedAt = parseDateTimeFlexible(blockedAtRaw);
-
-        String blockedByRaw = extractField(fields, headerIndex, -1, "blocked_by", "屏蔽者", "屏蔽用户");
-        row.blockedById = resolveUserIdentifier(blockedByRaw, false, "屏蔽操作用户", userLookupCache, userIdExistsCache);
-
-        String privacyAtRaw = extractField(fields, headerIndex, -1, "privacy_set_at", "私密设置时间");
-        row.privacySetAt = parseDateTimeFlexible(privacyAtRaw);
-
-        String privacyByRaw = extractField(fields, headerIndex, -1, "privacy_set_by", "私密设置用户");
-        row.privacySetById = resolveUserIdentifier(privacyByRaw, false, "私密设置用户", userLookupCache, userIdExistsCache);
 
         return row;
     }
@@ -3413,14 +3684,8 @@ public class DataImportService {
         Long parentId;
         Integer likeCount;
         Integer status;
-        Boolean isPrivate;
-        Boolean isBlocked;
         LocalDateTime createdAt;
         LocalDateTime updatedAt;
-        LocalDateTime blockedAt;
-        Long blockedById;
-        LocalDateTime privacySetAt;
-        Long privacySetById;
     }
 
     // 用户登录信息表已下线，保留统计占位，避免影响整体导入流程。
@@ -3562,64 +3827,6 @@ public class DataImportService {
 
         result.addResult("用户内容编辑", success, failed);
         logger.info("用户内容编辑数据导入完成，成功: {}, 失败: {}", success, failed);
-    }
-
-    @Transactional
-    public void importUserBlocksInTransaction(ImportResult result, List<String[]> data) {
-        importUserBlocks(result, data);
-    }
-
-    private void importUserBlocks(ImportResult result, List<String[]> data) {
-        if (data == null) return;
-
-        logger.info("开始导入用户屏蔽数据，共 {} 条", data.size());
-        int success = 0, failed = 0;
-
-        for (String[] fields : data) {
-            try {
-                if (fields.length < 4) continue;
-
-                UserBlock block = new UserBlock();
-                block.setId(Long.parseLong(fields[0]));
-
-                // 解析屏蔽者
-                if (!fields[1].isEmpty() && !fields[1].equals("null")) {
-                    Optional<User> blocker = userRepository.findById(Long.parseLong(fields[1]));
-                    if (blocker.isPresent()) {
-                        block.setBlocker(blocker.get());
-                    } else {
-                        logger.warn("屏蔽者用户ID '{}' 不存在，跳过屏蔽记录", fields[1]);
-                        continue;
-                    }
-                }
-
-                // 解析被屏蔽者
-                if (!fields[2].isEmpty() && !fields[2].equals("null")) {
-                    Optional<User> blocked = userRepository.findById(Long.parseLong(fields[2]));
-                    if (blocked.isPresent()) {
-                        block.setBlocked(blocked.get());
-                    } else {
-                        logger.warn("被屏蔽者用户ID '{}' 不存在，跳过屏蔽记录", fields[2]);
-                        continue;
-                    }
-                }
-
-                // 解析创建时间
-                if (!fields[3].equals("未知时间") && !fields[3].isEmpty() && !fields[3].equals("null")) {
-                    block.setCreatedAt(LocalDateTime.parse(fields[3], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-                }
-
-                userBlockRepository.save(block);
-                success++;
-
-            } catch (Exception e) {
-                failed++;
-                logger.warn("导入用户屏蔽失败: " + Arrays.toString(fields), e);
-            }
-        }
-
-        result.addResult("用户屏蔽", success, failed);
-        logger.info("用户屏蔽数据导入完成，成功: {}, 失败: {}", success, failed);
     }
 
     @Transactional
@@ -3910,65 +4117,6 @@ public class DataImportService {
 
         result.addResult("哲学家翻译", success, failed);
         logger.info("哲学家翻译数据导入完成，成功: {}, 失败: {}", success, failed);
-    }
-
-    // 用户关注数据导入方法
-    @Transactional
-    public void importUserFollowsInTransaction(ImportResult result, List<String[]> data) {
-        importUserFollows(result, data);
-    }
-
-    private void importUserFollows(ImportResult result, List<String[]> data) {
-        if (data == null) return;
-
-        logger.info("开始导入用户关注数据，共 {} 条", data.size());
-        int success = 0, failed = 0;
-
-        for (String[] fields : data) {
-            try {
-                if (fields.length < 3) continue;
-
-                UserFollow follow = new UserFollow();
-                follow.setId(Long.parseLong(fields[0]));
-
-                // 解析关注者
-                if (!fields[1].isEmpty()) {
-                    Optional<User> follower = userRepository.findById(Long.parseLong(fields[1]));
-                    if (follower.isPresent()) {
-                        follow.setFollower(follower.get());
-                    } else {
-                        logger.warn("关注者用户ID '{}' 不存在，跳过关注记录", fields[1]);
-                        continue;
-                    }
-                }
-
-                // 解析被关注者
-                if (!fields[2].isEmpty()) {
-                    Optional<User> following = userRepository.findById(Long.parseLong(fields[2]));
-                    if (following.isPresent()) {
-                        follow.setFollowing(following.get());
-                    } else {
-                        logger.warn("被关注者用户ID '{}' 不存在，跳过关注记录", fields[2]);
-                        continue;
-                    }
-                }
-
-                // 解析创建时间
-                if (fields.length > 3 && !fields[3].equals("未知时间") && !fields[3].isEmpty() && !fields[3].equals("null")) {
-                    follow.setCreatedAt(LocalDateTime.parse(fields[3], DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-                }
-
-                userFollowRepository.save(follow);
-                success++;
-
-            } catch (Exception e) {
-                failed++;
-                logger.warn("导入用户关注失败: " + Arrays.toString(fields), e);
-            }
-        }
-
-        result.addResult("用户关注", success, failed);
-        logger.info("用户关注数据导入完成，成功: {}, 失败: {}", success, failed);
     }
 
     // 哲学家-学派关联数据导入方法

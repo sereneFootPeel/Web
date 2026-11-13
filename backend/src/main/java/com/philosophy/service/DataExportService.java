@@ -24,8 +24,6 @@ public class DataExportService {
     private final CommentRepository commentRepository;
     private final LikeRepository likeRepository;
     private final UserContentEditRepository userContentEditRepository;
-    private final UserBlockRepository userBlockRepository;
-    private final UserFollowRepository userFollowRepository;
     private final SchoolTranslationRepository schoolTranslationRepository;
     private final ContentTranslationRepository contentTranslationRepository;
     private final PhilosopherTranslationRepository philosopherTranslationRepository;
@@ -40,8 +38,6 @@ public class DataExportService {
                              CommentRepository commentRepository,
                              LikeRepository likeRepository,
                              UserContentEditRepository userContentEditRepository,
-                             UserBlockRepository userBlockRepository,
-                             UserFollowRepository userFollowRepository,
                              SchoolTranslationRepository schoolTranslationRepository,
                              ContentTranslationRepository contentTranslationRepository,
                              PhilosopherTranslationRepository philosopherTranslationRepository,
@@ -55,8 +51,6 @@ public class DataExportService {
         this.commentRepository = commentRepository;
         this.likeRepository = likeRepository;
         this.userContentEditRepository = userContentEditRepository;
-        this.userBlockRepository = userBlockRepository;
-        this.userFollowRepository = userFollowRepository;
         this.schoolTranslationRepository = schoolTranslationRepository;
         this.contentTranslationRepository = contentTranslationRepository;
         this.philosopherTranslationRepository = philosopherTranslationRepository;
@@ -73,7 +67,7 @@ public class DataExportService {
         try {
             // 导出用户数据
             pw.println("用户数据");
-            pw.println("ID,用户名,邮箱,密码,名字,姓氏,角色,启用状态,个人资料隐私,评论隐私,内容隐私,管理员登录尝试,点赞数,分配学派ID,设备类型,用户代理,头像URL,语言设置,主题设置,创建时间,更新时间");
+            pw.println("ID,用户名,邮箱,密码,名字,姓氏,角色,启用状态,管理员登录尝试,点赞数,分配学派ID,设备类型,用户代理,头像URL,语言设置,主题设置,创建时间,更新时间");
             List<User> users = userRepository.findAll();
             logger.info("导出用户数据：查询到 {} 个用户", users.size());
             for (User user : users) {
@@ -87,9 +81,6 @@ public class DataExportService {
                     escapeCsv(user.getLastName()),
                     escapeCsv(user.getRole()),
                     user.isEnabled() ? "1" : "0",
-                    user.isProfilePrivate() ? "1" : "0",
-                    user.isCommentsPrivate() ? "1" : "0",
-                    user.isContentsPrivate() ? "1" : "0",
                     String.valueOf(user.getAdminLoginAttempts()),
                     String.valueOf(user.getLikeCount()),
                     user.getAssignedSchoolId() != null ? user.getAssignedSchoolId().toString() : "",
@@ -167,10 +158,10 @@ public class DataExportService {
 
             // 导出内容数据
             pw.println("内容数据");
-            pw.println("ID,内容,内容英文,哲学家ID,学派ID,作者ID,标题,排序索引,锁定用户ID,锁定时间,锁定至,点赞数,是否私有,隐私设置者ID,隐私设置时间,状态,是否屏蔽,屏蔽者ID,屏蔽时间,版本,创建时间,更新时间");
+            pw.println("ID,内容,内容英文,哲学家ID,学派ID,作者ID,标题,排序索引,锁定用户ID,锁定时间,锁定至,点赞数,状态,版本,创建时间,更新时间");
             List<Content> contents = contentRepository.findAll();
             for (Content content : contents) {
-                pw.printf("%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%d,%s,%s,%s,%d,%s,%s,%s,%s,%s,%s%n",
+                pw.printf("%d,%s,%s,%s,%s,%s,%s,%d,%s,%s,%s,%d,%d,%s,%s,%s%n",
                     content.getId(),
                     escapeCsv(content.getContent()),
                     escapeCsv(content.getContentEn()),
@@ -183,13 +174,7 @@ public class DataExportService {
                     content.getLockedAt() != null ? content.getLockedAt().format(formatter) : "",
                     content.getLockedUntil() != null ? content.getLockedUntil().format(formatter) : "",
                     content.getLikeCount(),
-                    content.isPrivate() ? "1" : "0",
-                    content.getPrivacySetBy() != null ? content.getPrivacySetBy().getId().toString() : "",
-                    content.getPrivacySetAt() != null ? content.getPrivacySetAt().format(formatter) : "",
                     content.getStatus(),
-                    content.isBlocked() ? "1" : "0",
-                    content.getBlockedBy() != null ? content.getBlockedBy().getId().toString() : "",
-                    content.getBlockedAt() != null ? content.getBlockedAt().format(formatter) : "",
                     content.getVersion() != null ? content.getVersion().toString() : "0",
                     content.getCreatedAt() != null ? content.getCreatedAt().format(formatter) : "未知时间",
                     content.getUpdatedAt() != null ? content.getUpdatedAt().format(formatter) : "未知时间"
@@ -242,34 +227,6 @@ public class DataExportService {
                     edit.getSchool().getId(),
                     edit.getStatus().toString(),
                     edit.getCreatedAt() != null ? edit.getCreatedAt().format(formatter) : "未知时间"
-                );
-            }
-            pw.println();
-
-            // 导出用户屏蔽数据
-            pw.println("用户屏蔽数据");
-            pw.println("ID,屏蔽者ID,被屏蔽者ID,创建时间");
-            List<UserBlock> userBlocks = userBlockRepository.findAll();
-            for (UserBlock block : userBlocks) {
-                pw.printf("%d,%d,%d,%s%n",
-                    block.getId(),
-                    block.getBlocker().getId(),
-                    block.getBlocked().getId(),
-                    block.getCreatedAt() != null ? block.getCreatedAt().format(formatter) : "未知时间"
-                );
-            }
-            pw.println();
-
-            // 导出用户关注数据
-            pw.println("用户关注数据");
-            pw.println("ID,关注者ID,被关注者ID,创建时间");
-            List<UserFollow> follows = userFollowRepository.findAll();
-            for (UserFollow follow : follows) {
-                pw.printf("%d,%d,%d,%s%n",
-                    follow.getId(),
-                    follow.getFollower().getId(),
-                    follow.getFollowing().getId(),
-                    follow.getCreatedAt() != null ? follow.getCreatedAt().format(formatter) : "未知时间"
                 );
             }
             pw.println();

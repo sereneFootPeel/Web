@@ -16,9 +16,7 @@ import com.philosophy.repository.PhilosopherRepository;
 import com.philosophy.repository.PhilosopherTranslationRepository;
 import com.philosophy.repository.SchoolRepository;
 import com.philosophy.repository.SchoolTranslationRepository;
-import com.philosophy.repository.UserBlockRepository;
 import com.philosophy.repository.UserContentEditRepository;
-import com.philosophy.repository.UserFollowRepository;
 import com.philosophy.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 
@@ -42,8 +40,6 @@ class DataExportServicePhilosopherImageCsvTest {
         CommentRepository commentRepository = mock(CommentRepository.class);
         LikeRepository likeRepository = mock(LikeRepository.class);
         UserContentEditRepository userContentEditRepository = mock(UserContentEditRepository.class);
-        UserBlockRepository userBlockRepository = mock(UserBlockRepository.class);
-        UserFollowRepository userFollowRepository = mock(UserFollowRepository.class);
         SchoolTranslationRepository schoolTranslationRepository = mock(SchoolTranslationRepository.class);
         ContentTranslationRepository contentTranslationRepository = mock(ContentTranslationRepository.class);
         PhilosopherTranslationRepository philosopherTranslationRepository = mock(PhilosopherTranslationRepository.class);
@@ -59,8 +55,6 @@ class DataExportServicePhilosopherImageCsvTest {
             commentRepository,
             likeRepository,
             userContentEditRepository,
-            userBlockRepository,
-            userFollowRepository,
             schoolTranslationRepository,
             contentTranslationRepository,
             philosopherTranslationRepository,
@@ -83,8 +77,6 @@ class DataExportServicePhilosopherImageCsvTest {
         when(commentRepository.findAll()).thenReturn(List.of());
         when(likeRepository.findAll()).thenReturn(List.of());
         when(userContentEditRepository.findAll()).thenReturn(List.of());
-        when(userBlockRepository.findAll()).thenReturn(List.of());
-        when(userFollowRepository.findAll()).thenReturn(List.of());
         when(schoolTranslationRepository.findAll()).thenReturn(List.of());
         when(contentTranslationRepository.findAll()).thenReturn(List.of());
         when(philosopherTranslationRepository.findAll()).thenReturn(List.of());
@@ -165,8 +157,6 @@ class DataExportServicePhilosopherImageCsvTest {
         CommentRepository commentRepository = mock(CommentRepository.class);
         LikeRepository likeRepository = mock(LikeRepository.class);
         UserContentEditRepository userContentEditRepository = mock(UserContentEditRepository.class);
-        UserBlockRepository userBlockRepository = mock(UserBlockRepository.class);
-        UserFollowRepository userFollowRepository = mock(UserFollowRepository.class);
         SchoolTranslationRepository schoolTranslationRepository = mock(SchoolTranslationRepository.class);
         ContentTranslationRepository contentTranslationRepository = mock(ContentTranslationRepository.class);
         PhilosopherTranslationRepository philosopherTranslationRepository = mock(PhilosopherTranslationRepository.class);
@@ -177,8 +167,6 @@ class DataExportServicePhilosopherImageCsvTest {
         when(commentRepository.findAll()).thenReturn(List.of());
         when(likeRepository.findAll()).thenReturn(List.of());
         when(userContentEditRepository.findAll()).thenReturn(List.of());
-        when(userBlockRepository.findAll()).thenReturn(List.of());
-        when(userFollowRepository.findAll()).thenReturn(List.of());
         when(schoolTranslationRepository.findAll()).thenReturn(List.of());
         when(contentTranslationRepository.findAll()).thenReturn(List.of());
         when(philosopherTranslationRepository.findAll()).thenReturn(List.of());
@@ -190,8 +178,6 @@ class DataExportServicePhilosopherImageCsvTest {
             commentRepository,
             likeRepository,
             userContentEditRepository,
-            userBlockRepository,
-            userFollowRepository,
             schoolTranslationRepository,
             contentTranslationRepository,
             philosopherTranslationRepository,

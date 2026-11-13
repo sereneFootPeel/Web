@@ -113,8 +113,6 @@ public class SecurityConfig {
             }, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .authorizeHttpRequests(authorize -> authorize
-                // 公开的随机名句API
-                .requestMatchers(HttpMethod.GET, "/api/quotes/random").permitAll()
                 // 健康检查
                 .requestMatchers("/api/health").permitAll()
                 // 认证相关API

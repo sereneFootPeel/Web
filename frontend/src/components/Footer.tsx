@@ -34,8 +34,8 @@ export function Footer() {
 
   return (
     <>
-      <footer className="footer-component" style={{ color: 'var(--text-primary)' }}>
-        <div className="container mx-auto px-4 sm:px-6">
+      <footer data-page-surface className="footer-component relative" style={{ color: 'var(--text-primary)' }}>
+        <div className="relative z-10 container mx-auto px-4 sm:px-6">
           <div className="footer-bar">
             <div className="footer-dateblock">
               <p className="footer-date">{dateLine}</p>
@@ -66,13 +66,14 @@ export function Footer() {
           }}
         >
           <div
+            data-page-surface
             className="search-modal-panel fixed bottom-0 left-1/2 w-full sm:w-2/3 rounded-t-2xl shadow-2xl max-h-[80vh] overflow-y-auto"
             style={{
               backgroundColor: 'var(--bg-primary)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-4 sm:p-6">
+            <div className="relative z-10 p-4 sm:p-6">
               <div className="flex items-center justify-between mb-4">
                 <h3
                   className="text-lg font-semibold"

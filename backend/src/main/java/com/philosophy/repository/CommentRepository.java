@@ -3,7 +3,6 @@ package com.philosophy.repository;
 import com.philosophy.model.Comment;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,12 +51,4 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
     @Transactional
     @Query("UPDATE Comment c SET c.likeCount = c.likeCount + :delta WHERE c.id = :id")
     void updateLikeCount(Long id, int delta);
-    
-    // 根据隐私设置者用户ID查找评论
-    @Query("SELECT c FROM Comment c WHERE c.privacySetBy.id = :userId")
-    List<Comment> findByPrivacySetByUserId(@Param("userId") Long userId);
-    
-    // 根据封禁者用户ID查找评论
-    @Query("SELECT c FROM Comment c WHERE c.blockedBy.id = :userId")
-    List<Comment> findByBlockedByUserId(@Param("userId") Long userId);
 }

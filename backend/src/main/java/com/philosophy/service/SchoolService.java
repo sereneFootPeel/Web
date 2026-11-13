@@ -575,7 +575,7 @@ public class SchoolService {
 
     /**
      * 获取指定流派的内容，按用户角色优先级排序
-     * 优先级：管理员和版主的内容优先，如果没有则显示用户写的点赞最多的内容
+     * 优先级：管理员的内容优先，如果没有则显示用户写的点赞最多的内容
      */
     @Transactional(readOnly = true)
     public List<Content> getContentsBySchoolIdWithPriority(Long schoolId) {
@@ -607,7 +607,7 @@ public class SchoolService {
 
     /**
      * 获取指定流派及其所有父流派的内容，按用户角色优先级排序
-     * 优先级：管理员和版主的内容优先，如果没有则显示用户写的点赞最多的内容
+     * 优先级：管理员的内容优先，如果没有则显示用户写的点赞最多的内容
      */
     @Transactional(readOnly = true)
     public List<Content> getContentsBySchoolIdWithAncestorsPriority(Long schoolId) {
@@ -620,7 +620,7 @@ public class SchoolService {
             // 获取该流派及其父流派的所有内容
             List<Content> allContents = contentRepository.findContentsBySchoolIds(schoolIds);
 
-            // 分离管理员/版主内容和用户内容
+            // 分离管理员内容和用户内容
             List<Content> adminModeratorContents = new ArrayList<>();
             List<Content> userContents = new ArrayList<>();
 
@@ -632,7 +632,7 @@ public class SchoolService {
                 }
             }
 
-            // 对管理员/版主内容按角色优先级和点赞数排序
+            // 对管理员内容按角色优先级和点赞数排序
             adminModeratorContents.sort((c1, c2) -> {
                 int priority1 = getUserPriority(c1.getUser());
                 int priority2 = getUserPriority(c2.getUser());
@@ -646,7 +646,7 @@ public class SchoolService {
             // 对用户内容按点赞数降序排序
             userContents.sort((c1, c2) -> Integer.compare(c2.getLikeCount(), c1.getLikeCount()));
 
-            // 合并结果：先显示管理员/版主内容，再显示用户内容
+            // 合并结果：先显示管理员内容，再显示用户内容
             List<Content> result = new ArrayList<>();
             result.addAll(adminModeratorContents);
             result.addAll(userContents);
@@ -660,37 +660,25 @@ public class SchoolService {
 
     /**
      * 获取用户角色优先级
-     * ADMIN = 1, MODERATOR = 2, 其他 = 3
+     * ADMIN = 1, 其他 = 2
      */
     private int getUserPriority(User user) {
         if (user == null) {
-            return 3; // 没有用户的默认为最低优先级
-        }
-
-        String role = user.getRole();
-        if ("ADMIN".equals(role)) {
-            return 1;
-        } else if ("MODERATOR".equals(role)) {
             return 2;
-        } else {
-            return 3;
         }
+        return "ADMIN".equals(user.getRole()) ? 1 : 2;
     }
 
     /**
-     * 判断用户是否为管理员或版主
+     * 判断用户是否为管理员
      */
     private boolean isAdminOrModerator(User user) {
-        if (user == null) {
-            return false;
-        }
-        String role = user.getRole();
-        return "ADMIN".equals(role) || "MODERATOR".equals(role);
+        return user != null && "ADMIN".equals(user.getRole());
     }
 
     /**
      * 获取指定流派的所有内容（用于 contents 页面）
-     * 显示该流派和子流派的所有内容，包括用户、版主、管理员的内容，不按优先级筛选
+     * 显示该流派和子流派的所有内容，包括用户和管理员的内容，不按优先级筛选
      */
     @Transactional(readOnly = true)
     public List<Content> getContentsBySchoolIdAll(Long schoolId) {
@@ -720,43 +708,7 @@ public class SchoolService {
     }
 
     /**
-     * 获取指定流派的内容，只显示管理员、版主和用户关注的作者的内容
-     * 用于 /schools/filter/{id} 端点
-     * 优化：使用数据库查询而非内存过滤，大幅提升性能
-     */
-    @Transactional(readOnly = true)
-    public List<Content> getContentsBySchoolIdFiltered(Long schoolId, Long currentUserId) {
-        try {
-            List<Long> schoolIds = getSchoolIdWithDescendants(schoolId);
-            if (schoolIds == null || schoolIds.isEmpty()) {
-                return new ArrayList<>();
-            }
-
-            // 如果用户未登录，只返回管理员和版主的内容
-            if (currentUserId == null) {
-                return getContentsBySchoolIdAdminModeratorOnly(schoolId);
-            }
-
-            // 使用数据库查询直接过滤，避免在内存中循环处理大量数据
-            List<Content> contents = contentRepository.findBySchoolIdsWithFollowedAuthors(schoolIds, currentUserId);
-
-            // 确保所有必要字段都有值
-            return contents.stream()
-                    .filter(content -> content != null)
-                    .collect(ArrayList::new, (list, content) -> {
-                        if (content.getContent() == null) {
-                            content.setContent("");
-                        }
-                        list.add(content);
-                    }, ArrayList::addAll);
-        } catch (Exception e) {
-            logger.error("Error getting filtered contents by school ID: {} - {}", schoolId, e.getMessage(), e);
-            return new ArrayList<>();
-        }
-    }
-    
-    /**
-     * 获取指定流派的内容，只包含管理员和版主编辑的内容（用于 schools 页面）
+     * 获取指定流派的内容，只包含管理员编辑的内容（用于 schools 页面）
      */
     @Transactional(readOnly = true)
     public List<Content> getContentsBySchoolIdAdminModeratorOnly(Long schoolId) {
@@ -766,7 +718,7 @@ public class SchoolService {
                 return new ArrayList<>();
             }
 
-            // 获取该流派的管理员和版主内容
+            // 获取该流派的管理员内容
             List<Content> adminModeratorContents = contentRepository.findBySchoolIdsAdminModeratorOnly(schoolIds);
 
             // 过滤掉null值并确保所有必要字段都有值
@@ -786,7 +738,7 @@ public class SchoolService {
     }
 
     /**
-     * 获取指定流派的内容（分页），只包含管理员和版主编辑的内容（用于 schools 页面的无限滚动）
+     * 获取指定流派的内容（分页），只包含管理员编辑的内容（用于 schools 页面的无限滚动）
      * @param schoolId 流派ID
      * @param page 页码（从0开始）
      * @param size 每页大小
@@ -808,7 +760,7 @@ public class SchoolService {
             org.springframework.data.domain.Pageable pageable = 
                 org.springframework.data.domain.PageRequest.of(page, size);
 
-            // 获取该流派的管理员和版主内容（分页）
+            // 获取该流派的管理员内容（分页）
             org.springframework.data.domain.Page<Content> contentPage = 
                 contentRepository.findBySchoolIdsAdminModeratorOnlyPaged(schoolIds, pageable);
 
@@ -841,7 +793,7 @@ public class SchoolService {
 
     /**
      * 获取指定流派的内容（分页），包含该流派及其子流派下所有可见内容，并按优先级排序。
-     * 优先级：管理员 > 版主 > 用户（用户按点赞数）。
+     * 优先级：管理员 > 用户（用户按点赞数）。
      */
     @Transactional(readOnly = true)
     public Map<String, Object> getContentsBySchoolIdWithPriorityPaged(Long schoolId, int page, int size) {
@@ -890,7 +842,7 @@ public class SchoolService {
     }
 
     /**
-     * 获取指定流派及其所有父流派的内容，只包含管理员和版主编辑的内容（用于 schools 页面）
+     * 获取指定流派及其所有父流派的内容，只包含管理员编辑的内容（用于 schools 页面）
      */
     @Transactional(readOnly = true)
     public List<Content> getContentsBySchoolIdWithAncestorsAdminModeratorOnly(Long schoolId) {
@@ -900,7 +852,7 @@ public class SchoolService {
                 return new ArrayList<>();
             }
 
-            // 获取该流派及其父流派的管理员和版主内容
+            // 获取该流派及其父流派的管理员内容
             List<Content> adminModeratorContents = contentRepository.findBySchoolIdsAdminModeratorOnly(schoolIds);
 
             // 过滤掉null值并确保所有必要字段都有值
@@ -920,7 +872,7 @@ public class SchoolService {
     }
 
     /**
-     * 获取指定流派的内容，包含管理员、版主编辑的内容以及用户点赞的作者的内容（用于 schools/filter 页面）
+     * 获取指定流派的内容，包含管理员编辑的内容以及用户点赞的作者的内容（用于 schools/filter 页面）
      */
     @Transactional(readOnly = true)
     public List<Content> getContentsBySchoolIdWithLikedAuthors(Long schoolId, Long currentUserId) {
@@ -930,12 +882,12 @@ public class SchoolService {
                 return new ArrayList<>();
             }
 
-            // 如果用户未登录，只返回管理员和版主的内容
+            // 如果用户未登录，只返回管理员的内容
             if (currentUserId == null) {
                 return getContentsBySchoolIdAdminModeratorOnly(schoolId);
             }
 
-            // 获取该流派的管理员、版主内容以及用户点赞的作者的内容
+            // 获取该流派的管理员内容以及用户点赞的作者的内容
             List<Content> contents = contentRepository.findBySchoolIdsWithLikedAuthors(schoolIds, currentUserId);
 
             // 过滤掉null值并确保所有必要字段都有值
@@ -954,76 +906,4 @@ public class SchoolService {
         }
     }
 
-    /**
-     * 获取版主可管理的流派列表（包括负责的流派及其子流派）
-     * @param moderatorAssignedSchoolId 版主负责的流派ID
-     * @return 可管理的流派列表
-     */
-    @Transactional(readOnly = true)
-    public List<School> getModeratorManageableSchools(Long moderatorAssignedSchoolId) {
-        if (moderatorAssignedSchoolId == null) {
-            return new ArrayList<>();
-        }
-
-        try {
-            // 获取版主负责的流派
-            School assignedSchool = findById(moderatorAssignedSchoolId).orElse(null);
-            if (assignedSchool == null) {
-                return new ArrayList<>();
-            }
-
-            List<School> manageableSchools = new ArrayList<>();
-            manageableSchools.add(assignedSchool);
-
-            // 递归添加所有子流派
-            addChildSchoolsRecursive(manageableSchools, assignedSchool);
-
-            return manageableSchools;
-        } catch (Exception e) {
-            logger.error("Error getting moderator manageable schools: {} - {}", moderatorAssignedSchoolId, e.getMessage(), e);
-            return new ArrayList<>();
-        }
-    }
-
-    /**
-     * 递归添加子流派到列表中
-     */
-    private void addChildSchoolsRecursive(List<School> schools, School parent) {
-        if (parent.getChildren() != null && !parent.getChildren().isEmpty()) {
-            for (School child : parent.getChildren()) {
-                schools.add(child);
-                addChildSchoolsRecursive(schools, child);
-            }
-        }
-    }
-
-    /**
-     * 验证版主是否有权限管理指定的流派
-     * @param moderatorAssignedSchoolId 版主负责的流派ID
-     * @param targetSchoolId 目标流派ID
-     * @return 是否有权限
-     */
-    @Transactional(readOnly = true)
-    public boolean canModeratorManageSchool(Long moderatorAssignedSchoolId, Long targetSchoolId) {
-        if (moderatorAssignedSchoolId == null || targetSchoolId == null) {
-            return false;
-        }
-
-        // 获取版主可管理的流派ID列表
-        List<Long> manageableSchoolIds = getSchoolIdWithDescendants(moderatorAssignedSchoolId);
-        return manageableSchoolIds.contains(targetSchoolId);
-    }
-
-    /**
-     * 获取版主可管理的流派ID列表（包括负责的流派及其子流派）
-     * @param moderatorAssignedSchoolId 版主负责的流派ID
-     * @return 可管理的流派ID列表
-     */
-    @Transactional(readOnly = true)
-    public List<Long> getModeratorManageableSchoolIds(Long moderatorAssignedSchoolId) {
-        if (moderatorAssignedSchoolId == null) {
-            return new ArrayList<>();
-        }
-        return getSchoolIdWithDescendants(moderatorAssignedSchoolId);
-    }
 }

@@ -28,14 +28,11 @@ class CommentServiceSanitizationTest {
     @Mock
     private ContentService contentService;
 
-    @Mock
-    private UserBlockService userBlockService;
-
     private CommentService commentService;
 
     @BeforeEach
     void setUp() {
-        commentService = new CommentService(commentRepository, contentService, userBlockService);
+        commentService = new CommentService(commentRepository, contentService);
     }
 
     @Test

@@ -56,33 +56,6 @@ public class User implements UserDetails {
     @Column(name = "role", nullable = false)
     private String role = "USER";
 
-    /**
-     * 主页隐私设置 - 控制整个用户主页的可见性
-     * true: 所有内容和评论仅自己可见
-     * false: 公开可见
-     * 
-     * 注意：当前实现使用此字段统一控制所有隐私设置
-     * commentsPrivate和contentsPrivate字段预留用于未来细粒度控制
-     */
-    @Column(name = "profile_private", nullable = false)
-    private boolean profilePrivate = false;
-
-    /**
-     * 评论隐私设置 - 预留字段，用于未来独立控制评论可见性
-     * TODO: 当前未使用，由profilePrivate统一控制
-     * 未来可实现：用户可以选择公开主页但隐藏评论
-     */
-    @Column(name = "comments_private", nullable = false)
-    private boolean commentsPrivate = false;
-
-    /**
-     * 内容隐私设置 - 预留字段，用于未来独立控制内容可见性
-     * TODO: 当前未使用，由profilePrivate统一控制
-     * 未来可实现：用户可以选择公开主页但隐藏创建的内容
-     */
-    @Column(name = "contents_private", nullable = false)
-    private boolean contentsPrivate = false;
-
     @Column(name = "admin_login_attempts", nullable = false)
     private int adminLoginAttempts = 0;
 
@@ -211,30 +184,6 @@ public class User implements UserDetails {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
-    }
-
-    public boolean isProfilePrivate() {
-        return profilePrivate;
-    }
-
-    public void setProfilePrivate(boolean profilePrivate) {
-        this.profilePrivate = profilePrivate;
-    }
-
-    public boolean isCommentsPrivate() {
-        return commentsPrivate;
-    }
-
-    public void setCommentsPrivate(boolean commentsPrivate) {
-        this.commentsPrivate = commentsPrivate;
-    }
-
-    public boolean isContentsPrivate() {
-        return contentsPrivate;
-    }
-
-    public void setContentsPrivate(boolean contentsPrivate) {
-        this.contentsPrivate = contentsPrivate;
     }
 
     public int getAdminLoginAttempts() {

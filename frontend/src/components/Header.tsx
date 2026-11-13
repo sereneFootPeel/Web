@@ -18,8 +18,10 @@ export function Header() {
   return (
     <header
       id="navbar"
+      data-page-surface
       className="fixed top-0 left-0 right-0 z-50 w-full shadow-sm overflow-hidden"
     >
+      <div className="relative z-10">
       <div className="container mx-auto px-4">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center">
@@ -112,6 +114,7 @@ export function Header() {
           </div>
         </div>
       )}
+      </div>
     </header>
   )
 }

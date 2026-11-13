@@ -12,7 +12,6 @@ export type PhilosopherNamesResponse = {
   hasMore: boolean
 }
 
-export type QuoteItem = { id: number; contentText: string; philosopherName: string }
 export type SchoolNode = {
   id: number
   parentId: number | null
@@ -176,10 +175,6 @@ export const philosophyApi = {
   philosopherNames: (offset = 0, limit = 30) =>
     apiGet<PhilosopherNamesResponse>(`/philosophers/names?offset=${offset}&limit=${limit}`),
   philosopher: (id: number) => apiGet<{ success: boolean; philosopher: PhilosopherData; hasMore: boolean }>(`/philosophers/${id}`),
-  randomQuotes: (count = 12, excludeIds?: string, lang?: 'zh' | 'en') =>
-    apiGet<QuoteItem[]>(
-      `/quotes/random?count=${count}${excludeIds ? `&excludeIds=${excludeIds}` : ''}${lang ? `&lang=${lang}` : ''}`,
-    ),
   schoolNodes: () => apiGet<SchoolNode[]>('/schools/nodes'),
   schoolDetail: (id: number, lang?: 'zh' | 'en') =>
     apiGet<SchoolDetail>(`/schools/detail?id=${id}${lang ? `&lang=${lang}` : ''}`),
